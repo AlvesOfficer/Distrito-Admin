@@ -1,0 +1,788 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Limpar GUI anterior
+if playerGui:FindFirstChild("SimpleSpam") then
+	playerGui:FindFirstChild("SimpleSpam"):Destroy()
+end
+if playerGui:FindFirstChild("DiscordMessage") then
+	playerGui:FindFirstChild("DiscordMessage"):Destroy()
+end
+
+-- ============================================
+-- CONFIGURAÇÕES
+-- ============================================
+local Config = {
+	QuickModeButtonSize = 8, -- 1 a 15 (8 = padrão)
+	MessageDelay = 0.48,
+	QuickModePCKey = Enum.KeyCode.F6,
+	Scale = 0.9, -- 0.2x maior que 0.7 = 0.9
+}
+
+-- ============================================
+-- DETECÇÃO DE DISPOSITIVO
+-- ============================================
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local isPC = UserInputService.KeyboardEnabled
+
+-- ============================================
+-- TEXTO INICIAL DE DISCORD
+-- ============================================
+local discordGui = Instance.new("ScreenGui")
+discordGui.Name = "DiscordMessage"
+discordGui.ResetOnSpawn = false
+discordGui.IgnoreGuiInset = true
+discordGui.Parent = playerGui
+
+local discordFrame = Instance.new("Frame")
+discordFrame.Size = UDim2.new(1, 0, 1, 0)
+discordFrame.Position = UDim2.new(0, 0, 0, 0)
+discordFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+discordFrame.BackgroundTransparency = 0.4
+discordFrame.BorderSizePixel = 0
+discordFrame.ZIndex = 100
+discordFrame.Parent = discordGui
+
+local discordText = Instance.new("TextLabel")
+discordText.AnchorPoint = Vector2.new(0.5, 0.5)
+discordText.Size = UDim2.new(0.9, 0, 0.15, 0)
+discordText.Position = UDim2.new(0.5, 0, 0.5, 0)
+discordText.BackgroundTransparency = 1
+discordText.Text = "Precisamos de Impulso no Discord! Ajude o Roleplay..."
+discordText.TextColor3 = Color3.fromRGB(255, 255, 255)
+discordText.TextSize = 32
+discordText.Font = Enum.Font.SourceSansBold
+discordText.ZIndex = 101
+discordText.TextWrapped = true
+discordText.RichText = true
+discordText.Parent = discordFrame
+
+task.wait(2.5)
+discordGui:Destroy()
+
+-- ============================================
+-- SCREENGUI PRINCIPAL
+-- ============================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SimpleSpam"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.Parent = playerGui
+
+-- UIScale para controlar tamanho geral
+local uiScale = Instance.new("UIScale")
+uiScale.Scale = Config.Scale
+uiScale.Parent = screenGui
+
+-- ============================================
+-- PAINEL PRINCIPAL
+-- ============================================
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 350, 0, 260)
+mainFrame.Position = UDim2.new(0.5, -175, 0.5, -130)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Visible = false
+mainFrame.Parent = screenGui
+
+-- Imagem de fundo
+local backgroundImage = Instance.new("ImageLabel")
+backgroundImage.Size = UDim2.new(1, 0, 1, 0)
+backgroundImage.Position = UDim2.new(0, 0, 0, 0)
+backgroundImage.BackgroundTransparency = 1
+backgroundImage.Image = "rbxassetid://80858824416098"
+backgroundImage.ImageTransparency = 0.3
+backgroundImage.ScaleType = Enum.ScaleType.Crop
+backgroundImage.Parent = mainFrame
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = mainFrame
+
+local backgroundCorner = Instance.new("UICorner")
+backgroundCorner.CornerRadius = UDim.new(0, 8)
+backgroundCorner.Parent = backgroundImage
+
+-- Header
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 35)
+header.Position = UDim2.new(0, 0, 0, 0)
+header.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+header.BorderSizePixel = 0
+header.Parent = mainFrame
+
+local headerCorner = Instance.new("UICorner")
+headerCorner.CornerRadius = UDim.new(0, 8)
+headerCorner.Parent = header
+
+local headerFix = Instance.new("Frame")
+headerFix.Size = UDim2.new(1, 0, 0, 8)
+headerFix.Position = UDim2.new(0, 0, 1, -8)
+headerFix.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+headerFix.BorderSizePixel = 0
+headerFix.Parent = header
+
+local headerGradient = Instance.new("UIGradient")
+headerGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(180, 0, 0)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 20, 20)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 0, 0))
+})
+headerGradient.Rotation = 0
+headerGradient.Parent = header
+
+local headerFixGradient = Instance.new("UIGradient")
+headerFixGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(180, 0, 0)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 20, 20)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 0, 0))
+})
+headerFixGradient.Rotation = 0
+headerFixGradient.Parent = headerFix
+
+-- Título
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -35, 1, 0)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "Escolha o seu"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 14
+title.Font = Enum.Font.SourceSansBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.TextStrokeTransparency = 0.5
+title.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+title.Parent = header
+
+-- Botão fechar
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 24, 0, 24)
+closeBtn.Position = UDim2.new(1, -28, 0, 5.5)
+closeBtn.BackgroundColor3 = Color3.fromRGB(67, 0, 0)
+closeBtn.BorderSizePixel = 0
+closeBtn.Text = "×"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.TextSize = 18
+closeBtn.Font = Enum.Font.SourceSansBold
+closeBtn.AutoButtonColor = false
+closeBtn.Parent = header
+
+local closeBtnCorner = Instance.new("UICorner")
+closeBtnCorner.CornerRadius = UDim.new(1, 0)
+closeBtnCorner.Parent = closeBtn
+
+local closeGradient = Instance.new("UIGradient")
+closeGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(85, 10, 10)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(60, 0, 0))
+})
+closeGradient.Rotation = 135
+closeGradient.Parent = closeBtn
+
+-- Container de conteúdo
+local contentContainer = Instance.new("Frame")
+contentContainer.Size = UDim2.new(1, -20, 1, -45)
+contentContainer.Position = UDim2.new(0, 10, 0, 40)
+contentContainer.BackgroundTransparency = 1
+contentContainer.BorderSizePixel = 0
+contentContainer.Parent = mainFrame
+
+local contentList = Instance.new("UIListLayout")
+contentList.Padding = UDim.new(0, 6)
+contentList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+contentList.SortOrder = Enum.SortOrder.LayoutOrder
+contentList.Parent = contentContainer
+
+-- Função helper para criar frame estilizado
+local function createStyledFrame(parent, layoutOrder, height)
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1, 0, 0, height)
+	frame.LayoutOrder = layoutOrder
+	frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	frame.BorderSizePixel = 0
+	frame.Parent = parent
+
+	local frameCorner = Instance.new("UICorner")
+	frameCorner.CornerRadius = UDim.new(0, 6)
+	frameCorner.Parent = frame
+
+	local frameGradient = Instance.new("UIGradient")
+	frameGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(40, 40, 40)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 30, 30))
+	})
+	frameGradient.Rotation = 90
+	frameGradient.Parent = frame
+
+	return frame
+end
+
+-- Caixa de texto
+local textBoxFrame = createStyledFrame(contentContainer, 1, 38)
+local textBox = Instance.new("TextBox")
+textBox.Size = UDim2.new(1, -20, 1, 0)
+textBox.Position = UDim2.new(0, 10, 0, 0)
+textBox.BackgroundTransparency = 1
+textBox.BorderSizePixel = 0
+textBox.Text = ""
+textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+textBox.TextSize = 13
+textBox.Font = Enum.Font.SourceSans
+textBox.PlaceholderText = "Escolha o seu..."
+textBox.PlaceholderColor3 = Color3.fromRGB(255, 255, 255)
+textBox.TextWrapped = true
+textBox.Parent = textBoxFrame
+
+-- Botão de spam
+local spamBtnFrame = createStyledFrame(contentContainer, 2, 42)
+local spamBtn = Instance.new("TextButton")
+spamBtn.Size = UDim2.new(1, 0, 1, 0)
+spamBtn.BackgroundTransparency = 1
+spamBtn.BorderSizePixel = 0
+spamBtn.Text = "ENVIAR"
+spamBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+spamBtn.TextSize = 15
+spamBtn.Font = Enum.Font.SourceSansBold
+spamBtn.TextStrokeTransparency = 0.5
+spamBtn.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+spamBtn.AutoButtonColor = false
+spamBtn.Parent = spamBtnFrame
+
+local spamGradient = Instance.new("UIGradient")
+spamGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 0, 0)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 30, 30)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 0, 0))
+})
+spamGradient.Parent = spamBtnFrame
+
+-- Status
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, 0, 0, 18)
+status.LayoutOrder = 3
+status.BackgroundTransparency = 1
+status.Text = "Pronto para enviar"
+status.TextColor3 = Color3.fromRGB(180, 180, 180)
+status.TextSize = 11
+status.Font = Enum.Font.SourceSans
+status.TextXAlignment = Enum.TextXAlignment.Center
+status.Parent = contentContainer
+
+-- Seção Modo Rápido Mobile (SEMPRE VISÍVEL)
+local quickModeMobileSection = createStyledFrame(contentContainer, 4, 45)
+local quickModeMobileInner = Instance.new("Frame")
+quickModeMobileInner.Size = UDim2.new(1, -20, 1, 0)
+quickModeMobileInner.Position = UDim2.new(0, 10, 0, 0)
+quickModeMobileInner.BackgroundTransparency = 1
+quickModeMobileInner.BorderSizePixel = 0
+quickModeMobileInner.Parent = quickModeMobileSection
+
+local quickModeMobileLabel = Instance.new("TextLabel")
+quickModeMobileLabel.Size = UDim2.new(0.55, 0, 1, 0)
+quickModeMobileLabel.Position = UDim2.new(0, 0, 0, 0)
+quickModeMobileLabel.BackgroundTransparency = 1
+quickModeMobileLabel.Text = "📱 Modo Rápido Mobile"
+quickModeMobileLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+quickModeMobileLabel.TextSize = 11
+quickModeMobileLabel.Font = Enum.Font.SourceSansBold
+quickModeMobileLabel.TextXAlignment = Enum.TextXAlignment.Left
+quickModeMobileLabel.Parent = quickModeMobileInner
+
+local quickModeMobileToggle = Instance.new("TextButton")
+quickModeMobileToggle.Size = UDim2.new(0, 45, 0, 22)
+quickModeMobileToggle.AnchorPoint = Vector2.new(1, 0.5)
+quickModeMobileToggle.Position = UDim2.new(1, 0, 0.5, 0)
+quickModeMobileToggle.BackgroundColor3 = Color3.fromRGB(255, 95, 87)
+quickModeMobileToggle.BorderSizePixel = 0
+quickModeMobileToggle.Text = "OFF"
+quickModeMobileToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+quickModeMobileToggle.TextSize = 12
+quickModeMobileToggle.Font = Enum.Font.SourceSansBold
+quickModeMobileToggle.AutoButtonColor = false
+quickModeMobileToggle.Parent = quickModeMobileInner
+
+local quickModeMobileToggleCorner = Instance.new("UICorner")
+quickModeMobileToggleCorner.CornerRadius = UDim.new(0, 11)
+quickModeMobileToggleCorner.Parent = quickModeMobileToggle
+
+-- Seção Modo Rápido PC
+local quickModePCSection = createStyledFrame(contentContainer, 5, 55)
+local quickModePCInner = Instance.new("Frame")
+quickModePCInner.Size = UDim2.new(1, -20, 1, 0)
+quickModePCInner.Position = UDim2.new(0, 10, 0, 0)
+quickModePCInner.BackgroundTransparency = 1
+quickModePCInner.BorderSizePixel = 0
+quickModePCInner.Parent = quickModePCSection
+
+local quickModePCLabel = Instance.new("TextLabel")
+quickModePCLabel.Size = UDim2.new(1, -50, 0, 22)
+quickModePCLabel.Position = UDim2.new(0, 0, 0, 2)
+quickModePCLabel.BackgroundTransparency = 1
+quickModePCLabel.Text = "⌨️ Modo Rápido PC: " .. Config.QuickModePCKey.Name
+quickModePCLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+quickModePCLabel.TextSize = 11
+quickModePCLabel.Font = Enum.Font.SourceSansBold
+quickModePCLabel.TextXAlignment = Enum.TextXAlignment.Left
+quickModePCLabel.Parent = quickModePCInner
+
+local quickModePCToggle = Instance.new("TextButton")
+quickModePCToggle.Size = UDim2.new(0, 45, 0, 22)
+quickModePCToggle.AnchorPoint = Vector2.new(1, 0)
+quickModePCToggle.Position = UDim2.new(1, 0, 0, 2)
+quickModePCToggle.BackgroundColor3 = Color3.fromRGB(255, 95, 87)
+quickModePCToggle.BorderSizePixel = 0
+quickModePCToggle.Text = "OFF"
+quickModePCToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+quickModePCToggle.TextSize = 12
+quickModePCToggle.Font = Enum.Font.SourceSansBold
+quickModePCToggle.AutoButtonColor = false
+quickModePCToggle.Parent = quickModePCInner
+
+local quickModePCToggleCorner = Instance.new("UICorner")
+quickModePCToggleCorner.CornerRadius = UDim.new(0, 11)
+quickModePCToggleCorner.Parent = quickModePCToggle
+
+local keyInputFrame = Instance.new("Frame")
+keyInputFrame.Size = UDim2.new(1, 0, 0, 25)
+keyInputFrame.Position = UDim2.new(0, 0, 0, 28)
+keyInputFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+keyInputFrame.BorderSizePixel = 0
+keyInputFrame.Parent = quickModePCInner
+
+local keyInputCorner = Instance.new("UICorner")
+keyInputCorner.CornerRadius = UDim.new(0, 4)
+keyInputCorner.Parent = keyInputFrame
+
+local keyInputBtn = Instance.new("TextButton")
+keyInputBtn.Size = UDim2.new(1, 0, 1, 0)
+keyInputBtn.BackgroundTransparency = 1
+keyInputBtn.BorderSizePixel = 0
+keyInputBtn.Text = "Clique aqui e pressione uma tecla..."
+keyInputBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+keyInputBtn.TextSize = 10
+keyInputBtn.Font = Enum.Font.SourceSans
+keyInputBtn.AutoButtonColor = false
+keyInputBtn.Parent = keyInputFrame
+
+-- Botão de toggle principal
+local toggleBtn = Instance.new("ImageButton")
+toggleBtn.Name = "ToggleButton"
+toggleBtn.Size = UDim2.new(0, 53, 0, 53)
+toggleBtn.Position = UDim2.new(0, 20, 0, 20)
+toggleBtn.BackgroundTransparency = 1
+toggleBtn.BorderSizePixel = 0
+toggleBtn.Image = "rbxassetid://82884792622569"
+toggleBtn.Active = true
+toggleBtn.Draggable = true
+toggleBtn.Parent = screenGui
+
+-- ============================================
+-- FUNÇÃO PARA CRIAR BOTÃO MOBILE COM TAMANHO CONFIGURÁVEL
+-- ============================================
+local function createQuickMobileButton()
+	local baseSize = 30 + (Config.QuickModeButtonSize * 3)
+	local sizeScale = Config.QuickModeButtonSize / 8
+
+	local quickMobileBtn = Instance.new("TextButton")
+	quickMobileBtn.Name = "QuickMobileButton"
+	quickMobileBtn.Size = UDim2.new(0, baseSize, 0, baseSize)
+	quickMobileBtn.Position = UDim2.new(0, 20, 0, 90)
+	quickMobileBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+	quickMobileBtn.BorderSizePixel = 0
+	quickMobileBtn.Text = "⚡"
+	quickMobileBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	quickMobileBtn.TextSize = 15 * sizeScale
+	quickMobileBtn.Font = Enum.Font.SourceSansBold
+	quickMobileBtn.AutoButtonColor = false
+	quickMobileBtn.Active = true
+	quickMobileBtn.Draggable = true
+	quickMobileBtn.Visible = false
+	quickMobileBtn.Parent = screenGui
+
+	local quickMobileBtnCorner = Instance.new("UICorner")
+	quickMobileBtnCorner.CornerRadius = UDim.new(0, 12 * sizeScale)
+	quickMobileBtnCorner.Parent = quickMobileBtn
+
+	local quickMobileGlow = Instance.new("Frame")
+	quickMobileGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+	quickMobileGlow.Size = UDim2.new(1.6, 0, 1.6, 0)
+	quickMobileGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+	quickMobileGlow.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+	quickMobileGlow.BackgroundTransparency = 0.6
+	quickMobileGlow.BorderSizePixel = 0
+	quickMobileGlow.ZIndex = -1
+	quickMobileGlow.Parent = quickMobileBtn
+
+	local quickMobileGlowCorner = Instance.new("UICorner")
+	quickMobileGlowCorner.CornerRadius = UDim.new(1, 0)
+	quickMobileGlowCorner.Parent = quickMobileGlow
+
+	local quickMobileStroke = Instance.new("UIStroke")
+	quickMobileStroke.Color = Color3.fromRGB(0, 200, 255)
+	quickMobileStroke.Thickness = 2 * sizeScale
+	quickMobileStroke.Transparency = 0.3
+	quickMobileStroke.Parent = quickMobileBtn
+
+	local quickMobileGradient = Instance.new("UIGradient")
+	quickMobileGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 180, 255)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 220, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 120, 255))
+	})
+	quickMobileGradient.Rotation = 45
+	quickMobileGradient.Parent = quickMobileBtn
+
+	local quickMobilePadding = Instance.new("UIPadding")
+	quickMobilePadding.PaddingLeft = UDim.new(0, 10 * sizeScale)
+	quickMobilePadding.PaddingRight = UDim.new(0, 10 * sizeScale)
+	quickMobilePadding.PaddingTop = UDim.new(0, 10 * sizeScale)
+	quickMobilePadding.PaddingBottom = UDim.new(0, 10 * sizeScale)
+	quickMobilePadding.Parent = quickMobileBtn
+
+	return quickMobileBtn, quickMobileGlow
+end
+
+local quickMobileBtn, quickMobileGlow = createQuickMobileButton()
+
+-- ============================================
+-- FUNÇÃO PARA RECRIAR BOTÃO COM NOVO TAMANHO
+-- ============================================
+local function rebuildQuickMobileButton()
+	if quickMobileBtn then
+		local wasVisible = quickMobileBtn.Visible
+		local position = quickMobileBtn.Position
+		quickMobileBtn:Destroy()
+		quickMobileBtn, quickMobileGlow = createQuickMobileButton()
+		quickMobileBtn.Visible = wasVisible
+		quickMobileBtn.Position = position
+
+		-- Reconectar eventos
+		quickMobileBtn.MouseButton1Click:Connect(sendMessage)
+		quickMobileBtn.MouseEnter:Connect(function()
+			local baseSize = 30 + (Config.QuickModeButtonSize * 3)
+			TweenService:Create(quickMobileBtn, TweenInfo.new(0.2), {
+				Size = UDim2.new(0, baseSize + 5, 0, baseSize + 5)
+			}):Play()
+			TweenService:Create(quickMobileGlow, TweenInfo.new(0.2), {
+				BackgroundTransparency = 0.3
+			}):Play()
+		end)
+		quickMobileBtn.MouseLeave:Connect(function()
+			local baseSize = 30 + (Config.QuickModeButtonSize * 3)
+			TweenService:Create(quickMobileBtn, TweenInfo.new(0.2), {
+				Size = UDim2.new(0, baseSize, 0, baseSize)
+			}):Play()
+			TweenService:Create(quickMobileGlow, TweenInfo.new(0.2), {
+				BackgroundTransparency = 0.6
+			}):Play()
+		end)
+	end
+end
+
+-- ============================================
+-- VARIÁVEIS
+-- ============================================
+local isOpen = false
+local lastMessageTime = 0
+local quickModeMobileEnabled = false
+local quickModePCEnabled = false
+local currentPCKey = Config.QuickModePCKey
+local isWaitingForKeyInput = false
+local pcKeyConnection = nil
+
+-- ============================================
+-- FUNÇÃO DE ENVIO DE SPAM
+-- ============================================
+local function sendMessage()
+	local currentTime = tick()
+
+	if currentTime - lastMessageTime < Config.MessageDelay then
+		local waitTime = Config.MessageDelay - (currentTime - lastMessageTime)
+		if isOpen then
+			status.Text = "Aguarde " .. string.format("%.2f", waitTime) .. "s"
+			status.TextColor3 = Color3.fromRGB(255, 150, 0)
+		end
+		return
+	end
+
+	local message = textBox.Text
+	if message == "" or message:gsub("%s+", "") == "" then
+		if isOpen then
+			status.Text = "Digite alguma coisa!"
+			status.TextColor3 = Color3.fromRGB(255, 95, 87)
+			task.wait(2)
+			status.Text = "Pronto para enviar"
+			status.TextColor3 = Color3.fromRGB(180, 180, 180)
+		end
+		return
+	end
+
+	lastMessageTime = currentTime
+
+	if isOpen then
+		status.Text = "Enviado!"
+		status.TextColor3 = Color3.fromRGB(92, 184, 92)
+	end
+
+	-- Efeito visual no botão mobile
+	if quickModeMobileEnabled and quickMobileBtn then
+		coroutine.wrap(function()
+			TweenService:Create(quickMobileGlow, TweenInfo.new(0.1), {
+				BackgroundTransparency = 0.2
+			}):Play()
+			TweenService:Create(quickMobileBtn, TweenInfo.new(0.1), {
+				BackgroundColor3 = Color3.fromRGB(0, 220, 255)
+			}):Play()
+			task.wait(0.15)
+			TweenService:Create(quickMobileGlow, TweenInfo.new(0.3), {
+				BackgroundTransparency = 0.6
+			}):Play()
+			TweenService:Create(quickMobileBtn, TweenInfo.new(0.3), {
+				BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+			}):Play()
+		end)()
+	end
+
+	pcall(function()
+		if ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents") then
+			local folder = ReplicatedStorage.DefaultChatSystemChatEvents
+			if folder:FindFirstChild("SayMessageRequest") then
+				folder.SayMessageRequest:FireServer(message, "All")
+				return
+			end
+		end
+
+		local TextChatService = game:GetService("TextChatService")
+		if TextChatService then
+			local textChannels = TextChatService:FindFirstChild("TextChannels")
+			if textChannels then
+				local general = textChannels:FindFirstChild("RBXGeneral")
+				if general then
+					general:SendAsync(message)
+					return
+				end
+			end
+		end
+	end)
+
+	if isOpen then
+		task.wait(1.5)
+		status.Text = "Pronto para enviar"
+		status.TextColor3 = Color3.fromRGB(180, 180, 180)
+	end
+end
+
+-- ============================================
+-- FUNÇÃO ABRIR/FECHAR PAINEL
+-- ============================================
+local function togglePanel()
+	isOpen = not isOpen
+
+	if isOpen then
+		mainFrame.Visible = true
+		mainFrame.Size = UDim2.new(0, 50, 0, 50)
+		mainFrame.Position = UDim2.new(0.5, -25, 0.5, -25)
+
+		TweenService:Create(mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quart), {
+			Size = UDim2.new(0, 350, 0, 260),
+			Position = UDim2.new(0.5, -175, 0.5, -130)
+		}):Play()
+
+	else
+		local closeTween = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart), {
+			Size = UDim2.new(0, 50, 0, 50),
+			Position = UDim2.new(0.5, -25, 0.5, -25)
+		})
+
+		closeTween:Play()
+		closeTween.Completed:Connect(function()
+			mainFrame.Visible = false
+		end)
+	end
+end
+
+-- ============================================
+-- TOGGLE MODO RÁPIDO MOBILE
+-- ============================================
+local function toggleQuickModeMobile()
+	quickModeMobileEnabled = not quickModeMobileEnabled
+
+	if quickModeMobileEnabled then
+		quickMobileBtn.Visible = true
+		quickModeMobileToggle.Text = "ON"
+		quickModeMobileToggle.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+	else
+		quickMobileBtn.Visible = false
+		quickModeMobileToggle.Text = "OFF"
+		quickModeMobileToggle.BackgroundColor3 = Color3.fromRGB(255, 95, 87)
+	end
+end
+
+-- ============================================
+-- TOGGLE MODO RÁPIDO PC
+-- ============================================
+local function setupPCKeybind()
+	if pcKeyConnection then
+		pcKeyConnection:Disconnect()
+		pcKeyConnection = nil
+	end
+
+	if not quickModePCEnabled then return end
+
+	pcKeyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if not quickModePCEnabled then return end
+
+		if input.KeyCode == currentPCKey then
+			sendMessage()
+		end
+	end)
+end
+
+local function toggleQuickModePC()
+	quickModePCEnabled = not quickModePCEnabled
+
+	if quickModePCEnabled then
+		quickModePCToggle.Text = "ON"
+		quickModePCToggle.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+		setupPCKeybind()
+	else
+		quickModePCToggle.Text = "OFF"
+		quickModePCToggle.BackgroundColor3 = Color3.fromRGB(255, 95, 87)
+		if pcKeyConnection then
+			pcKeyConnection:Disconnect()
+			pcKeyConnection = nil
+		end
+	end
+end
+
+-- ============================================
+-- SELEÇÃO DE TECLA PC
+-- ============================================
+local function startKeySelection()
+	isWaitingForKeyInput = true
+	keyInputBtn.Text = "Pressione uma tecla..."
+	keyInputBtn.TextColor3 = Color3.fromRGB(255, 255, 0)
+	keyInputFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 0)
+
+	local keyConnection
+	keyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if not isWaitingForKeyInput then
+			keyConnection:Disconnect()
+			return
+		end
+
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			currentPCKey = input.KeyCode
+			Config.QuickModePCKey = currentPCKey
+
+			quickModePCLabel.Text = "⌨️ Modo Rápido PC: " .. currentPCKey.Name
+			keyInputBtn.Text = "Tecla: " .. currentPCKey.Name
+			keyInputBtn.TextColor3 = Color3.fromRGB(0, 255, 0)
+			keyInputFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+
+			isWaitingForKeyInput = false
+			keyConnection:Disconnect()
+
+			if quickModePCEnabled then
+				setupPCKeybind()
+			end
+
+			task.wait(2)
+			if not isWaitingForKeyInput then
+				keyInputBtn.Text = "Clique aqui e pressione uma tecla..."
+				keyInputBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+			end
+		end
+	end)
+end
+
+-- ============================================
+-- CONFIGURAÇÃO POR DISPOSITIVO
+-- ============================================
+if isPC then
+	quickMobileBtn.Visible = false
+	quickModeMobileEnabled = false
+	quickModeMobileToggle.Text = "OFF"
+	quickModeMobileToggle.BackgroundColor3 = Color3.fromRGB(255, 95, 87)
+elseif isMobile then
+	quickModePCSection.Visible = false
+end
+
+-- ============================================
+-- ATUALIZAR POSIÇÃO DO BOTÃO MOBILE
+-- ============================================
+local function updateQuickMobilePosition()
+	if not quickMobileBtn then return end
+	quickMobileBtn.Position = UDim2.new(
+		toggleBtn.Position.X.Scale,
+		toggleBtn.Position.X.Offset,
+		toggleBtn.Position.Y.Scale,
+		toggleBtn.Position.Y.Offset + toggleBtn.Size.Y.Offset + 15
+	)
+end
+
+toggleBtn:GetPropertyChangedSignal("Position"):Connect(updateQuickMobilePosition)
+toggleBtn:GetPropertyChangedSignal("Size"):Connect(updateQuickMobilePosition)
+
+-- ============================================
+-- EVENTOS
+-- ============================================
+toggleBtn.MouseButton1Click:Connect(togglePanel)
+closeBtn.MouseButton1Click:Connect(togglePanel)
+spamBtn.MouseButton1Click:Connect(sendMessage)
+quickModeMobileToggle.MouseButton1Click:Connect(toggleQuickModeMobile)
+quickModePCToggle.MouseButton1Click:Connect(toggleQuickModePC)
+keyInputBtn.MouseButton1Click:Connect(startKeySelection)
+quickMobileBtn.MouseButton1Click:Connect(sendMessage)
+
+textBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		sendMessage()
+	end
+end)
+
+-- Efeitos hover
+toggleBtn.MouseEnter:Connect(function()
+	if not isOpen then
+		TweenService:Create(toggleBtn, TweenInfo.new(0.2), {
+			Size = UDim2.new(0, 58, 0, 58)
+		}):Play()
+	end
+end)
+
+toggleBtn.MouseLeave:Connect(function()
+	if not isOpen then
+		TweenService:Create(toggleBtn, TweenInfo.new(0.2), {
+			Size = UDim2.new(0, 53, 0, 53)
+		}):Play()
+	end
+end)
+
+quickMobileBtn.MouseEnter:Connect(function()
+	local baseSize = 30 + (Config.QuickModeButtonSize * 3)
+	TweenService:Create(quickMobileBtn, TweenInfo.new(0.2), {
+		Size = UDim2.new(0, baseSize + 5, 0, baseSize + 5)
+	}):Play()
+	TweenService:Create(quickMobileGlow, TweenInfo.new(0.2), {
+		BackgroundTransparency = 0.3
+	}):Play()
+end)
+
+quickMobileBtn.MouseLeave:Connect(function()
+	local baseSize = 30 + (Config.QuickModeButtonSize * 3)
+	TweenService:Create(quickMobileBtn, TweenInfo.new(0.2), {
+		Size = UDim2.new(0, baseSize, 0, baseSize)
+	}):Play()
+	TweenService:Create(quickMobileGlow, TweenInfo.new(0.2), {
+		BackgroundTransparency = 0.6
+	}):Play()
+end)
