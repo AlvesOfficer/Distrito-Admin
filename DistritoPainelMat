@@ -11,8 +11,8 @@ local jogadorLocal = Players.LocalPlayer
 
 local ADMINS = {
 	["alvesofficer"] = true,
-	["roblox_user_1655474082"] = true,
 	["9086tttt"] = true,
+	["roblox_user_1655474082"] = true,
 }
 
 local nomeAdmin = jogadorLocal.Name:lower()
@@ -72,6 +72,7 @@ local estado = {
 	modoEsp = "off", -- "off" | "normal" | "inteligente"
 	modoNome = "username", -- "username" | "apelido"
 	mostrarNomes = true,
+	mostrarHP = true,
 	distanciaMaximaEsp = DISTANCIA_ESP_PADRAO,
 	streamingForcado = false,
 }
@@ -375,7 +376,14 @@ statusMostrarNomes.TextColor3 = CORES.textoPrincipal
 
 aplicarHover(botaoMostrarNomes, function() return CORES.inativo end, function() return CORES.inativoHover end)
 
-local botaoNome, statusNome, dotNome, rotuloNome = criarBotaoToggle(6, "BotaoNome", "NOME: USERNAME")
+local botaoMostrarHP, statusMostrarHP, dotMostrarHP = criarBotaoToggle(6, "BotaoMostrarHP", "MOSTRAR HP")
+dotMostrarHP.BackgroundColor3 = CORES.espVisivel
+statusMostrarHP.Text = "ON"
+statusMostrarHP.TextColor3 = CORES.textoPrincipal
+
+aplicarHover(botaoMostrarHP, function() return CORES.inativo end, function() return CORES.inativoHover end)
+
+local botaoNome, statusNome, dotNome, rotuloNome = criarBotaoToggle(7, "BotaoNome", "NOME: USERNAME")
 dotNome.BackgroundColor3 = CORES.espVisivel
 statusNome.Text = "ON"
 statusNome.TextColor3 = CORES.textoPrincipal
@@ -383,7 +391,7 @@ statusNome.TextColor3 = CORES.textoPrincipal
 aplicarHover(botaoNome, function() return CORES.inativo end, function() return CORES.inativoHover end)
 
 local legenda = Instance.new("TextLabel")
-legenda.LayoutOrder = 7
+legenda.LayoutOrder = 8
 legenda.Size = UDim2.new(1, 0, 0, 28)
 legenda.BackgroundTransparency = 1
 legenda.Text = "ESP Inteligente — cada parte do corpo: verde se exposta, vermelha se só aparece pelo ESP"
@@ -393,10 +401,10 @@ legenda.TextColor3 = CORES.textoSecundario
 legenda.TextWrapped = true
 legenda.Parent = painel
 
-criarDivisor(8)
+criarDivisor(9)
 
 local tituloTimes = Instance.new("TextLabel")
-tituloTimes.LayoutOrder = 9
+tituloTimes.LayoutOrder = 10
 tituloTimes.Size = UDim2.new(1, 0, 0, 18)
 tituloTimes.BackgroundTransparency = 1
 tituloTimes.Text = "TIMES AMIGOS"
@@ -408,7 +416,7 @@ tituloTimes.Parent = painel
 
 local listaTimes = Instance.new("ScrollingFrame")
 listaTimes.Name = "ListaTimes"
-listaTimes.LayoutOrder = 10
+listaTimes.LayoutOrder = 11
 listaTimes.Size = UDim2.new(1, 0, 0, 110)
 listaTimes.BackgroundTransparency = 1
 listaTimes.BorderSizePixel = 0
@@ -424,10 +432,10 @@ listaTimesLayout.SortOrder = Enum.SortOrder.LayoutOrder
 listaTimesLayout.Padding = UDim.new(0, 4)
 listaTimesLayout.Parent = listaTimes
 
-criarDivisor(11)
+criarDivisor(12)
 
 local tituloMapa = Instance.new("TextLabel")
-tituloMapa.LayoutOrder = 12
+tituloMapa.LayoutOrder = 13
 tituloMapa.Size = UDim2.new(1, 0, 0, 18)
 tituloMapa.BackgroundTransparency = 1
 tituloMapa.Text = "MAPA"
@@ -437,7 +445,7 @@ tituloMapa.TextSize = 11
 tituloMapa.TextColor3 = CORES.textoSecundario
 tituloMapa.Parent = painel
 
-local botaoStreaming, statusStreaming, dotStreaming = criarBotaoToggle(13, "BotaoStreaming", "STREAMING FORÇADO")
+local botaoStreaming, statusStreaming, dotStreaming = criarBotaoToggle(14, "BotaoStreaming", "STREAMING FORÇADO")
 
 aplicarHover(botaoStreaming, function()
 	return estado.streamingForcado and CORES.ativo or CORES.inativo
@@ -536,6 +544,9 @@ local function removerEspDoJogador(jogador)
 		return
 	end
 
+	if objetos.hpConexao then
+		objetos.hpConexao:Disconnect()
+	end
 	if objetos.highlight then
 		objetos.highlight:Destroy()
 	end
@@ -629,8 +640,8 @@ local function criarEspNoJogador(jogador)
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "ESP_Billboard"
-	billboard.Size = UDim2.fromOffset(160, 36)
-	billboard.StudsOffset = Vector3.new(0, 2.6, 0)
+	billboard.Size = UDim2.fromOffset(160, 50)
+	billboard.StudsOffset = Vector3.new(0, 2.8, 0)
 	billboard.AlwaysOnTop = true
 	billboard.Adornee = raizPersonagem
 	billboard.Parent = personagem
@@ -660,6 +671,24 @@ local function criarEspNoJogador(jogador)
 	distanciaLabel.TextStrokeTransparency = 0.5
 	distanciaLabel.Parent = billboard
 	dados.distanciaLabel = distanciaLabel
+
+	local hpLabel = Instance.new("TextLabel")
+	hpLabel.Name = "HP"
+	hpLabel.Size = UDim2.new(1, 0, 0, 16)
+	hpLabel.Position = UDim2.new(0, 0, 0, 34)
+	hpLabel.BackgroundTransparency = 1
+	hpLabel.Text = math.floor(humanoid.Health) .. " / " .. math.floor(humanoid.MaxHealth) .. " HP"
+	hpLabel.Visible = estado.mostrarHP
+	hpLabel.Font = FONTE
+	hpLabel.TextSize = 11
+	hpLabel.TextColor3 = CORES.espVisivel
+	hpLabel.TextStrokeTransparency = 0.5
+	hpLabel.Parent = billboard
+	dados.hpLabel = hpLabel
+
+	dados.hpConexao = humanoid.HealthChanged:Connect(function(saude)
+		hpLabel.Text = math.floor(saude) .. " / " .. math.floor(humanoid.MaxHealth) .. " HP"
+	end)
 
 	espObjetos[jogador] = dados
 end
@@ -691,6 +720,21 @@ local function alternarMostrarNomes()
 end
 
 botaoMostrarNomes.MouseButton1Click:Connect(alternarMostrarNomes)
+
+local function alternarMostrarHP()
+	estado.mostrarHP = not estado.mostrarHP
+	statusMostrarHP.Text = estado.mostrarHP and "ON" or "OFF"
+	statusMostrarHP.TextColor3 = estado.mostrarHP and CORES.textoPrincipal or CORES.textoSecundario
+	dotMostrarHP.BackgroundColor3 = estado.mostrarHP and CORES.espVisivel or CORES.textoSecundario
+
+	for _, objetos in pairs(espObjetos) do
+		if objetos.hpLabel then
+			objetos.hpLabel.Visible = estado.mostrarHP
+		end
+	end
+end
+
+botaoMostrarHP.MouseButton1Click:Connect(alternarMostrarHP)
 
 local function sincronizarEsp()
 	if estado.modoEsp == "off" then
