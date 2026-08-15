@@ -1,2584 +1,1029 @@
--- ===================================================================
--- CONFIGURAÇÃO
--- ===================================================================
-local CFG = {
-	Name = "DISTRITO ADMIN",
-	Ver = "11.0",
-	Owner = "",
-	Key = "distritokeyadm",
-	Logo = "rbxassetid://87527693800087",
-	Background = "rbxassetid://116029182557459",
-	-- Raios de borda padronizados (usados no design das categorias/cards)
-	R = {
-		Painel = 10,
-		Login = 12,
-		Card = 8,
-		Botao = 6,
-		Pequeno = 4,
-	},
-	-- Mensagens automáticas do Chat da Staff (bug de comunicação -18/+18: em vez de
-	-- texto livre, os admins disparam frases prontas que são retransmitidas pelo
-	-- servidor a todos os admins, sem depender do filtro de chat do Roblox).
-	PresetMsgs = {
-		"Usuário está suspeito!",
-		"Usuário está abusando de props!",
-		"Usuário está bagunçando o mapa!",
-		"Usuário não respeita as regras!",
-		"Usuário vai ser punido!",
-		"Preciso de apoio nesta área!",
-		"Tudo certo, jogador liberado.",
-		"Fiquem de olho neste jogador.",
-	},
-	C = {
-		BG = Color3.fromRGB(10, 10, 13),
-		S1 = Color3.fromRGB(16, 16, 21),
-		S2 = Color3.fromRGB(22, 22, 29),
-		S3 = Color3.fromRGB(30, 30, 38),
-		Red = Color3.fromRGB(185, 20, 20),
-		RedL = Color3.fromRGB(220, 40, 40),
-		RedD = Color3.fromRGB(100, 12, 12),
-		Acc = Color3.fromRGB(255, 70, 35),
-		T1 = Color3.fromRGB(245, 245, 250),
-		T2 = Color3.fromRGB(175, 175, 185),
-		T3 = Color3.fromRGB(115, 115, 125),
-		Grn = Color3.fromRGB(45, 175, 60),
-		Blu = Color3.fromRGB(50, 140, 220),
-		Yel = Color3.fromRGB(220, 165, 30),
-		Ong = Color3.fromRGB(230, 125, 25),
-		Wht = Color3.fromRGB(255, 255, 255),
-	},
-	F = {
-		T = Enum.Font.GothamBlack,
-		B = Enum.Font.GothamBold,
-		R = Enum.Font.GothamSemibold,
-		S = Enum.Font.Gotham,
-		M = Enum.Font.RobotoMono,
-	},
-}
+-- LocalScript: StarterPlayerScripts/PainelAdminESP
+-- Painel restrito aos admins configurados no sistema de moderação do mapa
 
--- ===================================================================
--- DADOS PERSISTENTES
--- ===================================================================
-if not _G.DA10 then
-	_G.DA10 = {
-		Authorized = {},
-		Banned = {},
-		ActiveAdmins = {},
-		ChatLogs = {},
-		StaffChat = {},
-		ESP_Name = true,
-		ESP_Dist = true,
-		ESP_HP = true,
-		Minimized = false,
-	}
-end
-local D = _G.DA10
-
--- ===================================================================
--- SERVIÇOS
--- ===================================================================
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local Teams = game:GetService("Teams")
 local TweenService = game:GetService("TweenService")
-local Stats = game:GetService("Stats")
-local LP = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-local MOBILE = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
-local function GetParent()
-	local ok, cg = pcall(function() return game:GetService("CoreGui") end)
-	if ok and cg then return cg end
-	return LP:WaitForChild("PlayerGui")
-end
-local SAFE = GetParent()
+local jogadorLocal = Players.LocalPlayer
 
--- ===================================================================
--- REMOTOS (comunicação real entre clientes, via servidor)
--- ===================================================================
--- Um LocalScript nunca consegue falar direto com o LocalScript de outro
--- jogador — tudo tem que passar pelo servidor. Por isso o Chat da Staff e a
--- busca de "data de criação confirmada" dependem do script de servidor que
--- acompanha este arquivo (DistritoAdmin_Servidor.lua, em ServerScriptService).
--- Se ele não estiver instalado, o painel avisa e cai para um modo local/estimado.
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local REMOTOS_PASTA = "DA10_Remotes"
-
-local function ObterRemoto(nome)
-	local ok, resultado = pcall(function()
-		local pasta = ReplicatedStorage:WaitForChild(REMOTOS_PASTA, 6)
-		if not pasta then return nil end
-		return pasta:WaitForChild(nome, 6)
-	end)
-	if ok then return resultado end
-	return nil
-end
-
-local RemoteAlerta = ObterRemoto("StaffAlert")
-local RemoteConta = ObterRemoto("GetAccountInfo")
-local SERVIDOR_OK = (RemoteAlerta ~= nil) and (RemoteConta ~= nil)
-
--- ===================================================================
--- UTILITÁRIOS
--- ===================================================================
-local function Create(class, props, parent)
-	local obj = Instance.new(class)
-	for k, v in pairs(props or {}) do
-		if k ~= "Parent" then obj[k] = v end
-	end
-	if parent then obj.Parent = parent end
-	if props and props.Parent then obj.Parent = props.Parent end
-	return obj
-end
-
-local function Tween(obj, props, dur, ease, dir)
-	dur = dur or 0.3
-	ease = ease or Enum.EasingStyle.Quart
-	dir = dir or Enum.EasingDirection.Out
-	local t = TweenService:Create(obj, TweenInfo.new(dur, ease, dir), props)
-	t:Play()
-	return t
-end
-
-local function Corner(obj, r)
-	return Create("UICorner", {CornerRadius = UDim.new(0, r or 6)}, obj)
-end
-
-local function Stroke(obj, color, trans, thick)
-	return Create("UIStroke", {
-		Color = color or CFG.C.S3,
-		Transparency = trans or 0.4,
-		Thickness = thick or 1,
-		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-	}, obj)
-end
-
--- ===================================================================
--- GRADIENTE CORRIGIDO - Preenchimento completo, transição suave
--- ===================================================================
-local GRADIENTES = {
-	bg = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(12, 12, 17)),
-			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(18, 18, 25)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 25, 35)),
-		}),
-		Rotation = 180,
-	},
-	btnRed = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(140, 15, 15)),
-			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(185, 25, 25)),
-			ColorSequenceKeypoint.new(0.7, Color3.fromRGB(210, 35, 35)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(160, 20, 20)),
-		}),
-		Rotation = 0,
-	},
-	btnGreen = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 130, 45)),
-			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(45, 175, 60)),
-			ColorSequenceKeypoint.new(0.7, Color3.fromRGB(55, 195, 70)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 145, 50)),
-		}),
-		Rotation = 0,
-	},
-	btnBlue = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 100, 170)),
-			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(45, 130, 210)),
-			ColorSequenceKeypoint.new(0.7, Color3.fromRGB(55, 150, 230)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 115, 185)),
-		}),
-		Rotation = 0,
-	},
-	btnGray = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 45, 55)),
-			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(55, 55, 68)),
-			ColorSequenceKeypoint.new(0.7, Color3.fromRGB(60, 60, 75)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(48, 48, 60)),
-		}),
-		Rotation = 0,
-	},
-	sidebar = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(14, 14, 20)),
-			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(18, 18, 26)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 22, 32)),
-		}),
-		Rotation = 180,
-	},
-	-- Categoria selecionada na sidebar: vermelho premium com brilho diagonal
-	navActive = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 14, 14)),
-			ColorSequenceKeypoint.new(0.45, Color3.fromRGB(175, 24, 24)),
-			ColorSequenceKeypoint.new(0.55, Color3.fromRGB(190, 30, 30)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(130, 16, 16)),
-		}),
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0),
-			NumberSequenceKeypoint.new(0.5, 0.05),
-			NumberSequenceKeypoint.new(1, 0),
-		}),
-		Rotation = 25,
-	},
-	-- Categoria não selecionada: sheen escuro sutil
-	navInactive = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(23, 23, 30)),
-			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(27, 27, 35)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(21, 21, 27)),
-		}),
-		Rotation = 25,
-	},
-	card = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(18, 18, 26)),
-			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(24, 24, 34)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 28, 40)),
-		}),
-		Rotation = 135,
-	},
-	default = {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 20, 28)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 30, 40)),
-		}),
-		Rotation = 180,
-	},
+local ADMINS = {
+	["alvesofficer"] = true,
+	["roblox_user_1655474082"] = true,
+	["9086tttt"] = true,
 }
 
--- Reaproveita um único UIGradient por objeto (em vez de empilhar um novo a cada
--- chamada). Isso evita gradientes duplicados/"listrados" e permite trocar o
--- visual de um botão (ex: categoria ativa/inativa) só chamando Gradient() de novo.
-local function Gradient(obj, tipo, cor)
-	local def = GRADIENTES[tipo] or GRADIENTES.default
-	local grad = obj:FindFirstChildOfClass("UIGradient")
-	if not grad then
-		grad = Instance.new("UIGradient")
-		grad.Parent = obj
-	end
-	grad.Color = def.Color
-	grad.Rotation = def.Rotation
-	grad.Transparency = def.Transparency or NumberSequence.new(0)
-	grad.Offset = def.Offset or Vector2.new(0, 0)
-	return grad
+local nomeAdmin = jogadorLocal.Name:lower()
+local displayAdmin = jogadorLocal.DisplayName:lower()
+
+if not (ADMINS[nomeAdmin] or ADMINS[displayAdmin]) then
+	return
 end
 
--- ===================================================================
--- NOTIFICAÇÃO
--- ===================================================================
-local function Notify(titulo, mensagem, duracao, estilo)
-	duracao = duracao or 4
-	estilo = estilo or "i"
-	local cores = {i = CFG.C.Blu, s = CFG.C.Grn, w = CFG.C.Ong, e = CFG.C.Red}
-	local cor = cores[estilo] or CFG.C.Red
-	local frame = Create("CanvasGroup", {
-		Size = UDim2.new(0, 0, 0, 0),
-		Position = UDim2.new(1, -10, 0.72, 0),
-		AnchorPoint = Vector2.new(1, 0),
-		BackgroundColor3 = CFG.C.S1,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		ZIndex = 999,
-		Parent = SAFE,
-	})
-	Corner(frame, 8)
-	Stroke(frame, cor, 0.3)
-	Gradient(frame, "bg")
-	Create("Frame", {
-		Size = UDim2.new(0, 3, 1, 0),
-		BackgroundColor3 = cor,
-		BorderSizePixel = 0,
-		ZIndex = 1000,
-		Parent = frame,
-	})
-	Create("TextLabel", {
-		Size = UDim2.new(1, -14, 0, 20),
-		Position = UDim2.new(0, 10, 0, 7),
-		Text = titulo:upper(),
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.B,
-		TextSize = MOBILE and 13 or 11,
-		BackgroundTransparency = 1,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 1000,
-		Parent = frame,
-	})
-	Create("TextLabel", {
-		Size = UDim2.new(1, -14, 0, 16),
-		Position = UDim2.new(0, 10, 0, 28),
-		Text = mensagem,
-		TextColor3 = CFG.C.T2,
-		Font = CFG.F.S,
-		TextSize = MOBILE and 11 or 10,
-		BackgroundTransparency = 1,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextWrapped = true,
-		ZIndex = 1000,
-		Parent = frame,
-	})
-	Tween(frame, {Size = UDim2.new(0, 280, 0, 56)}, 0.3)
-	task.delay(duracao, function()
-		if not frame.Parent then return end
-		Tween(frame, {Size = UDim2.new(0, 280, 0, 0), BackgroundTransparency = 1}, 0.2)
-		task.delay(0.2, function() frame:Destroy() end)
+print("[PainelAdminESP] Script carregado para " .. jogadorLocal.Name)
+
+-- ===== CONFIGURAÇÕES =====
+
+local CORES = {
+	painel = Color3.fromRGB(24, 24, 27),
+	painelClaro = Color3.fromRGB(33, 33, 37),
+	borda = Color3.fromRGB(50, 50, 55),
+	bordaDestaque = Color3.fromRGB(120, 40, 40),
+	textoPrincipal = Color3.fromRGB(240, 240, 242),
+	textoSecundario = Color3.fromRGB(155, 155, 162),
+	ativo = Color3.fromRGB(196, 44, 44),
+	ativoHover = Color3.fromRGB(216, 58, 58),
+	inativo = Color3.fromRGB(52, 52, 57),
+	inativoHover = Color3.fromRGB(66, 66, 72),
+	painelFlutuanteHover = Color3.fromRGB(34, 34, 38),
+	espNormal = Color3.fromRGB(230, 170, 40),
+	espVisivel = Color3.fromRGB(48, 210, 100),
+	espOculto = Color3.fromRGB(210, 44, 44),
+}
+
+local TWEEN_RAPIDO = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TWEEN_ABRIR = TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+local function aplicarHover(botao, obterCorBase, obterCorHover)
+	botao.MouseEnter:Connect(function()
+		TweenService:Create(botao, TWEEN_RAPIDO, { BackgroundColor3 = obterCorHover() }):Play()
+	end)
+	botao.MouseLeave:Connect(function()
+		TweenService:Create(botao, TWEEN_RAPIDO, { BackgroundColor3 = obterCorBase() }):Play()
 	end)
 end
 
--- ===================================================================
--- SISTEMA DE CHAT
--- ===================================================================
-local ChatSystem = {}
-ChatSystem.OnLog = nil
-ChatSystem.OnStaff = nil
+local FONTE = Enum.Font.Gotham
+local FONTE_BOLD = Enum.Font.GothamBold
 
-function ChatSystem:AddLog(categoria, jogador, mensagem)
-	local entry = {
-		Tempo = os.date("%H:%M:%S"),
-		Categoria = categoria,
-		Jogador = jogador,
-		Mensagem = mensagem,
-	}
-	table.insert(D.ChatLogs, entry)
-	while #D.ChatLogs > 500 do table.remove(D.ChatLogs, 1) end
-	if ChatSystem.OnLog then ChatSystem.OnLog(entry) end
+local JOGADORES_POR_FRAME = 2 -- quantos jogadores têm a visibilidade (raycast) recalculada por frame, evita picos de travamento
+local INTERVALO_ATUALIZACAO_LEVE = 0.15 -- segundos entre atualizações do texto de distância
+local INTERVALO_RECONCILIACAO = 0.5 -- segundos entre checagens de alcance/times amigos/personagem
+local DISTANCIA_ESP_PADRAO = 500
+local DISTANCIA_STREAMING_FORCADA = 100000
+local TECLA_ABRIR_PAINEL = Enum.KeyCode.F4 -- troque aqui se conflitar com alguma tecla do jogo
+
+-- ===== ESTADO =====
+
+local estado = {
+	painelAberto = false,
+	modoEsp = "off", -- "off" | "normal" | "inteligente"
+	modoNome = "username", -- "username" | "apelido"
+	mostrarNomes = true,
+	distanciaMaximaEsp = DISTANCIA_ESP_PADRAO,
+	streamingForcado = false,
+}
+
+local espConexoes = {}
+local espObjetos = {}
+local espAtualizacaoConexao = nil
+local filaVisibilidade = {}
+local indiceFilaVisibilidade = 1
+local equipesAmigas = {}
+local botoesTimes = {}
+local comportamentoMouseAnterior = nil
+
+-- guarda os valores originais do mapa assim que o script carrega, antes de qualquer alteração
+local streamingMinOriginal = workspace.StreamingMinRadius
+local streamingTargetOriginal = workspace.StreamingTargetRadius
+
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+raycastParams.IgnoreWater = true
+
+-- ===== INTERFACE BASE =====
+
+local telaGui = Instance.new("ScreenGui")
+telaGui.Name = "PainelAdminESP"
+telaGui.ResetOnSpawn = false
+telaGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+telaGui.DisplayOrder = 2000 -- garante que fica por cima de outros HUDs (arsenal, SAMU, etc.)
+telaGui.Parent = jogadorLocal:WaitForChild("PlayerGui")
+
+local botaoFlutuante = Instance.new("TextButton")
+botaoFlutuante.Name = "BotaoFlutuante"
+botaoFlutuante.Size = UDim2.fromOffset(52, 52)
+botaoFlutuante.Position = UDim2.new(1, -70, 0.5, -25)
+botaoFlutuante.BackgroundColor3 = CORES.painel
+botaoFlutuante.BorderSizePixel = 0
+botaoFlutuante.Text = "ADM"
+botaoFlutuante.Font = FONTE_BOLD
+botaoFlutuante.TextSize = 14
+botaoFlutuante.TextColor3 = CORES.textoPrincipal
+botaoFlutuante.AutoButtonColor = false
+botaoFlutuante.Active = true
+botaoFlutuante.ZIndex = 10
+botaoFlutuante.Parent = telaGui
+
+local botaoCorner = Instance.new("UICorner")
+botaoCorner.CornerRadius = UDim.new(1, 0)
+botaoCorner.Parent = botaoFlutuante
+
+local botaoBorda = Instance.new("UIStroke")
+botaoBorda.Color = CORES.bordaDestaque
+botaoBorda.Thickness = 1.5
+botaoBorda.Transparency = 0.3
+botaoBorda.Parent = botaoFlutuante
+
+aplicarHover(botaoFlutuante, function() return CORES.painel end, function() return CORES.painelFlutuanteHover end)
+
+local painel = Instance.new("Frame")
+painel.Name = "Painel"
+painel.AutomaticSize = Enum.AutomaticSize.Y
+painel.Size = UDim2.fromOffset(260, 0)
+painel.Position = UDim2.new(1, -280, 0.3, 0)
+painel.BackgroundColor3 = CORES.painel
+painel.BorderSizePixel = 0
+painel.Visible = false
+painel.Active = true
+painel.ZIndex = 10
+painel.Parent = telaGui
+
+local painelEscala = Instance.new("UIScale")
+painelEscala.Scale = 1
+painelEscala.Parent = painel
+
+local painelCorner = Instance.new("UICorner")
+painelCorner.CornerRadius = UDim.new(0, 12)
+painelCorner.Parent = painel
+
+local painelBorda = Instance.new("UIStroke")
+painelBorda.Color = CORES.bordaDestaque
+painelBorda.Thickness = 1.2
+painelBorda.Transparency = 0.35
+painelBorda.Parent = painel
+
+local painelPadding = Instance.new("UIPadding")
+painelPadding.PaddingTop = UDim.new(0, 10)
+painelPadding.PaddingBottom = UDim.new(0, 10)
+painelPadding.PaddingLeft = UDim.new(0, 10)
+painelPadding.PaddingRight = UDim.new(0, 10)
+painelPadding.Parent = painel
+
+local painelLayout = Instance.new("UIListLayout")
+painelLayout.FillDirection = Enum.FillDirection.Vertical
+painelLayout.SortOrder = Enum.SortOrder.LayoutOrder
+painelLayout.Padding = UDim.new(0, 8)
+painelLayout.Parent = painel
+
+-- Barra de título (alça de arraste do painel + fechar/sair)
+local barraTitulo = Instance.new("Frame")
+barraTitulo.Name = "BarraTitulo"
+barraTitulo.LayoutOrder = 1
+barraTitulo.Size = UDim2.new(1, 0, 0, 30)
+barraTitulo.BackgroundColor3 = CORES.painelClaro
+barraTitulo.BorderSizePixel = 0
+barraTitulo.Active = true
+barraTitulo.Parent = painel
+
+local barraCorner = Instance.new("UICorner")
+barraCorner.CornerRadius = UDim.new(0, 8)
+barraCorner.Parent = barraTitulo
+
+local barraDestaque = Instance.new("Frame")
+barraDestaque.Name = "BarraDestaque"
+barraDestaque.Size = UDim2.new(0, 3, 1, -10)
+barraDestaque.Position = UDim2.new(0, 6, 0.5, 0)
+barraDestaque.AnchorPoint = Vector2.new(0, 0.5)
+barraDestaque.BackgroundColor3 = CORES.ativo
+barraDestaque.BorderSizePixel = 0
+barraDestaque.Parent = barraTitulo
+
+local barraDestaqueCorner = Instance.new("UICorner")
+barraDestaqueCorner.CornerRadius = UDim.new(1, 0)
+barraDestaqueCorner.Parent = barraDestaque
+
+local tituloPainel = Instance.new("TextLabel")
+tituloPainel.Size = UDim2.new(1, -70, 1, 0)
+tituloPainel.Position = UDim2.new(0, 16, 0, 0)
+tituloPainel.BackgroundTransparency = 1
+tituloPainel.Text = "PAINEL ADMIN"
+tituloPainel.TextXAlignment = Enum.TextXAlignment.Left
+tituloPainel.Font = FONTE_BOLD
+tituloPainel.TextSize = 13
+tituloPainel.TextColor3 = CORES.textoPrincipal
+tituloPainel.Parent = barraTitulo
+
+local botaoFechar = Instance.new("TextButton")
+botaoFechar.Name = "BotaoFechar"
+botaoFechar.Size = UDim2.fromOffset(22, 20)
+botaoFechar.Position = UDim2.new(1, -52, 0.5, -10)
+botaoFechar.BackgroundColor3 = CORES.inativo
+botaoFechar.BorderSizePixel = 0
+botaoFechar.Text = "-"
+botaoFechar.Font = FONTE_BOLD
+botaoFechar.TextSize = 14
+botaoFechar.TextColor3 = CORES.textoPrincipal
+botaoFechar.AutoButtonColor = false
+botaoFechar.Active = true
+botaoFechar.Parent = barraTitulo
+
+local botaoFecharCorner = Instance.new("UICorner")
+botaoFecharCorner.CornerRadius = UDim.new(0, 5)
+botaoFecharCorner.Parent = botaoFechar
+
+aplicarHover(botaoFechar, function() return CORES.inativo end, function() return CORES.inativoHover end)
+
+local botaoSair = Instance.new("TextButton")
+botaoSair.Name = "BotaoSair"
+botaoSair.Size = UDim2.fromOffset(22, 20)
+botaoSair.Position = UDim2.new(1, -26, 0.5, -10)
+botaoSair.BackgroundColor3 = CORES.ativo
+botaoSair.BorderSizePixel = 0
+botaoSair.Text = "x"
+botaoSair.Font = FONTE_BOLD
+botaoSair.TextSize = 12
+botaoSair.TextColor3 = CORES.textoPrincipal
+botaoSair.AutoButtonColor = false
+botaoSair.Active = true
+botaoSair.Parent = barraTitulo
+
+local botaoSairCorner = Instance.new("UICorner")
+botaoSairCorner.CornerRadius = UDim.new(0, 5)
+botaoSairCorner.Parent = botaoSair
+
+aplicarHover(botaoSair, function() return CORES.ativo end, function() return CORES.ativoHover end)
+
+local function criarDivisor(ordem)
+	local linha = Instance.new("Frame")
+	linha.LayoutOrder = ordem
+	linha.Size = UDim2.new(1, 0, 0, 1)
+	linha.BackgroundColor3 = CORES.borda
+	linha.BorderSizePixel = 0
+	linha.Parent = painel
+	return linha
 end
 
-function ChatSystem:GetLogs(filtro, limite)
-	limite = limite or 100
-	local resultado = {}
-	local count = 0
-	for i = #D.ChatLogs, 1, -1 do
-		local log = D.ChatLogs[i]
-		local match = not filtro or filtro == ""
-		if not match then
-			match = log.Jogador:lower():find(filtro:lower()) or log.Mensagem:lower():find(filtro:lower())
+local function criarBotaoToggle(ordem, nome, texto)
+	local botao = Instance.new("TextButton")
+	botao.Name = nome
+	botao.LayoutOrder = ordem
+	botao.Size = UDim2.new(1, 0, 0, 40)
+	botao.BackgroundColor3 = CORES.inativo
+	botao.BorderSizePixel = 0
+	botao.Text = ""
+	botao.AutoButtonColor = false
+	botao.Active = true
+	botao.Parent = painel
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 7)
+	corner.Parent = botao
+
+	local rotulo = Instance.new("TextLabel")
+	rotulo.Name = "Rotulo"
+	rotulo.Size = UDim2.new(1, -92, 1, 0)
+	rotulo.Position = UDim2.new(0, 14, 0, 0)
+	rotulo.BackgroundTransparency = 1
+	rotulo.Text = texto
+	rotulo.TextXAlignment = Enum.TextXAlignment.Left
+	rotulo.TextTruncate = Enum.TextTruncate.AtEnd
+	rotulo.Font = FONTE
+	rotulo.TextSize = 12
+	rotulo.TextColor3 = CORES.textoPrincipal
+	rotulo.Parent = botao
+
+	local dot = Instance.new("Frame")
+	dot.Name = "Dot"
+	dot.Size = UDim2.fromOffset(7, 7)
+	dot.Position = UDim2.new(1, -72, 0.5, -3)
+	dot.BackgroundColor3 = CORES.textoSecundario
+	dot.BorderSizePixel = 0
+	dot.Parent = botao
+
+	local dotCorner = Instance.new("UICorner")
+	dotCorner.CornerRadius = UDim.new(1, 0)
+	dotCorner.Parent = dot
+
+	local status = Instance.new("TextLabel")
+	status.Name = "Status"
+	status.Size = UDim2.fromOffset(55, 20)
+	status.Position = UDim2.new(1, -60, 0.5, -10)
+	status.BackgroundTransparency = 1
+	status.Text = "OFF"
+	status.Font = FONTE_BOLD
+	status.TextSize = 11
+	status.TextColor3 = CORES.textoSecundario
+	status.Parent = botao
+
+	return botao, status, dot, rotulo
+end
+
+local botaoEspNormal, statusEspNormal, dotEspNormal = criarBotaoToggle(2, "BotaoEspNormal", "ESP NORMAL")
+local botaoEspInteligente, statusEspInteligente, dotEspInteligente = criarBotaoToggle(3, "BotaoEspInteligente", "ESP INTELIGENTE")
+
+aplicarHover(botaoEspNormal, function()
+	return estado.modoEsp == "normal" and CORES.ativo or CORES.inativo
+end, function()
+	return estado.modoEsp == "normal" and CORES.ativoHover or CORES.inativoHover
+end)
+
+aplicarHover(botaoEspInteligente, function()
+	return estado.modoEsp == "inteligente" and CORES.ativo or CORES.inativo
+end, function()
+	return estado.modoEsp == "inteligente" and CORES.ativoHover or CORES.inativoHover
+end)
+
+local linhaDistancia = Instance.new("Frame")
+linhaDistancia.Name = "LinhaDistancia"
+linhaDistancia.LayoutOrder = 4
+linhaDistancia.Size = UDim2.new(1, 0, 0, 36)
+linhaDistancia.BackgroundColor3 = CORES.inativo
+linhaDistancia.BorderSizePixel = 0
+linhaDistancia.Parent = painel
+
+local cornerDistancia = Instance.new("UICorner")
+cornerDistancia.CornerRadius = UDim.new(0, 7)
+cornerDistancia.Parent = linhaDistancia
+
+local rotuloDistancia = Instance.new("TextLabel")
+rotuloDistancia.Size = UDim2.new(1, -74, 1, 0)
+rotuloDistancia.Position = UDim2.new(0, 14, 0, 0)
+rotuloDistancia.BackgroundTransparency = 1
+rotuloDistancia.Text = "ALCANCE (STUDS)"
+rotuloDistancia.TextXAlignment = Enum.TextXAlignment.Left
+rotuloDistancia.Font = FONTE
+rotuloDistancia.TextSize = 12
+rotuloDistancia.TextColor3 = CORES.textoPrincipal
+rotuloDistancia.Parent = linhaDistancia
+
+local campoDistancia = Instance.new("TextBox")
+campoDistancia.Name = "CampoDistancia"
+campoDistancia.Size = UDim2.fromOffset(58, 24)
+campoDistancia.Position = UDim2.new(1, -68, 0.5, -12)
+campoDistancia.BackgroundColor3 = CORES.painelClaro
+campoDistancia.BorderSizePixel = 0
+campoDistancia.Text = tostring(estado.distanciaMaximaEsp)
+campoDistancia.PlaceholderText = "500"
+campoDistancia.Font = FONTE_BOLD
+campoDistancia.TextSize = 12
+campoDistancia.TextColor3 = CORES.textoPrincipal
+campoDistancia.ClearTextOnFocus = false
+campoDistancia.Active = true
+campoDistancia.Parent = linhaDistancia
+
+local cornerCampo = Instance.new("UICorner")
+cornerCampo.CornerRadius = UDim.new(0, 5)
+cornerCampo.Parent = campoDistancia
+
+local botaoMostrarNomes, statusMostrarNomes, dotMostrarNomes = criarBotaoToggle(5, "BotaoMostrarNomes", "MOSTRAR NOMES")
+dotMostrarNomes.BackgroundColor3 = CORES.espVisivel
+statusMostrarNomes.Text = "ON"
+statusMostrarNomes.TextColor3 = CORES.textoPrincipal
+
+aplicarHover(botaoMostrarNomes, function() return CORES.inativo end, function() return CORES.inativoHover end)
+
+local botaoNome, statusNome, dotNome, rotuloNome = criarBotaoToggle(6, "BotaoNome", "NOME: USERNAME")
+dotNome.BackgroundColor3 = CORES.espVisivel
+statusNome.Text = "ON"
+statusNome.TextColor3 = CORES.textoPrincipal
+
+aplicarHover(botaoNome, function() return CORES.inativo end, function() return CORES.inativoHover end)
+
+local legenda = Instance.new("TextLabel")
+legenda.LayoutOrder = 7
+legenda.Size = UDim2.new(1, 0, 0, 28)
+legenda.BackgroundTransparency = 1
+legenda.Text = "ESP Inteligente — cada parte do corpo: verde se exposta, vermelha se só aparece pelo ESP"
+legenda.Font = FONTE
+legenda.TextSize = 10
+legenda.TextColor3 = CORES.textoSecundario
+legenda.TextWrapped = true
+legenda.Parent = painel
+
+criarDivisor(8)
+
+local tituloTimes = Instance.new("TextLabel")
+tituloTimes.LayoutOrder = 9
+tituloTimes.Size = UDim2.new(1, 0, 0, 18)
+tituloTimes.BackgroundTransparency = 1
+tituloTimes.Text = "TIMES AMIGOS"
+tituloTimes.TextXAlignment = Enum.TextXAlignment.Left
+tituloTimes.Font = FONTE_BOLD
+tituloTimes.TextSize = 11
+tituloTimes.TextColor3 = CORES.textoSecundario
+tituloTimes.Parent = painel
+
+local listaTimes = Instance.new("ScrollingFrame")
+listaTimes.Name = "ListaTimes"
+listaTimes.LayoutOrder = 10
+listaTimes.Size = UDim2.new(1, 0, 0, 110)
+listaTimes.BackgroundTransparency = 1
+listaTimes.BorderSizePixel = 0
+listaTimes.ScrollBarThickness = 4
+listaTimes.ScrollBarImageColor3 = CORES.borda
+listaTimes.AutomaticCanvasSize = Enum.AutomaticSize.Y
+listaTimes.CanvasSize = UDim2.new()
+listaTimes.Active = true
+listaTimes.Parent = painel
+
+local listaTimesLayout = Instance.new("UIListLayout")
+listaTimesLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listaTimesLayout.Padding = UDim.new(0, 4)
+listaTimesLayout.Parent = listaTimes
+
+criarDivisor(11)
+
+local tituloMapa = Instance.new("TextLabel")
+tituloMapa.LayoutOrder = 12
+tituloMapa.Size = UDim2.new(1, 0, 0, 18)
+tituloMapa.BackgroundTransparency = 1
+tituloMapa.Text = "MAPA"
+tituloMapa.TextXAlignment = Enum.TextXAlignment.Left
+tituloMapa.Font = FONTE_BOLD
+tituloMapa.TextSize = 11
+tituloMapa.TextColor3 = CORES.textoSecundario
+tituloMapa.Parent = painel
+
+local botaoStreaming, statusStreaming, dotStreaming = criarBotaoToggle(13, "BotaoStreaming", "STREAMING FORÇADO")
+
+aplicarHover(botaoStreaming, function()
+	return estado.streamingForcado and CORES.ativo or CORES.inativo
+end, function()
+	return estado.streamingForcado and CORES.ativoHover or CORES.inativoHover
+end)
+
+-- ===== ARRASTAR (botão e painel, livres e independentes) =====
+
+local function conectarArraste(alvoDeteccao, alvoMovido)
+	local arrastando = false
+	local offset = Vector2.new()
+
+	alvoDeteccao.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			arrastando = true
+			offset = Vector2.new(input.Position.X, input.Position.Y) - Vector2.new(alvoMovido.AbsolutePosition.X, alvoMovido.AbsolutePosition.Y)
 		end
-		if match then
-			table.insert(resultado, 1, log)
-			count = count + 1
-		end
-		if count >= limite then break end
-	end
-	return resultado
-end
-
-function ChatSystem:ClearLogs()
-	D.ChatLogs = {}
-	if ChatSystem.OnLog then ChatSystem.OnLog(nil) end
-end
-
-function ChatSystem:AddStaffMsg(jogador, mensagem, userId)
-	local entry = {
-		Tempo = os.date("%H:%M:%S"),
-		Jogador = jogador,
-		UserId = userId or (Players:FindFirstChild(jogador) and Players[jogador].UserId) or 0,
-		Mensagem = mensagem,
-	}
-	table.insert(D.StaffChat, entry)
-	while #D.StaffChat > 300 do table.remove(D.StaffChat, 1) end
-	if ChatSystem.OnStaff then ChatSystem.OnStaff(entry) end
-end
-
-function ChatSystem:GetStaffMsgs(limite)
-	limite = limite or 50
-	local resultado = {}
-	local inicio = math.max(1, #D.StaffChat - limite + 1)
-	for i = inicio, #D.StaffChat do
-		table.insert(resultado, D.StaffChat[i])
-	end
-	return resultado
-end
-
--- ===================================================================
--- AUTENTICAÇÃO
--- ===================================================================
-local Auth = {}
-function Auth:IsOwner()
-	return LP.Name == CFG.Owner
-end
-function Auth:IsAuthorized()
-	return table.find(D.Authorized, LP.Name) ~= nil
-end
-function Auth:IsBanned()
-	return table.find(D.Banned, LP.Name) ~= nil
-end
-function Auth:GrantAccess()
-	if not table.find(D.Authorized, LP.Name) then
-		table.insert(D.Authorized, LP.Name)
-	end
-	if not table.find(D.ActiveAdmins, LP.Name) then
-		table.insert(D.ActiveAdmins, LP.Name)
-	end
-end
-
--- ===================================================================
--- COMANDOS
--- ===================================================================
-local CMD = {Active = {}, Connections = {}, ESP = {}}
-
-function CMD:Voar(velocidade)
-	velocidade = math.clamp(velocidade or 50, 1, 400)
-	CMD.Active.Voo = true
-	CMD.Active.VelocidadeVoo = velocidade
-	if CMD.Connections.Voo then CMD.Connections.Voo:Disconnect() end
-	CMD.Connections.Voo = RunService.RenderStepped:Connect(function()
-		if not CMD.Active.Voo then return end
-		pcall(function()
-			local char = LP.Character
-			if not char then return end
-			local hrp = char:FindFirstChild("HumanoidRootPart")
-			local hum = char:FindFirstChild("Humanoid")
-			if not hrp or not hum then return end
-			local bg = hrp:FindFirstChild("DA_BG")
-			local bv = hrp:FindFirstChild("DA_BV")
-			if not bg then bg = Create("BodyGyro", {Name = "DA_BG", MaxTorque = Vector3.new(9e9, 9e9, 9e9), Parent = hrp}) end
-			if not bv then bv = Create("BodyVelocity", {Name = "DA_BV", MaxForce = Vector3.new(9e9, 9e9, 9e9), Parent = hrp}) end
-			bg.CFrame = Camera.CFrame
-			local dir = Vector3.zero
-			if UIS:IsKeyDown(Enum.KeyCode.W) then dir += Camera.CFrame.LookVector end
-			if UIS:IsKeyDown(Enum.KeyCode.S) then dir -= Camera.CFrame.LookVector end
-			if UIS:IsKeyDown(Enum.KeyCode.A) then dir -= Camera.CFrame.RightVector end
-			if UIS:IsKeyDown(Enum.KeyCode.D) then dir += Camera.CFrame.RightVector end
-			if UIS:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.new(0, 1, 0) end
-			if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then dir -= Vector3.new(0, 1, 0) end
-			bv.Velocity = dir * CMD.Active.VelocidadeVoo
-			hum.PlatformStand = true
-		end)
 	end)
-	Notify("VOO", "Ativado | " .. velocidade, 2, "s")
-end
 
-function CMD:PararVoo()
-	CMD.Active.Voo = false
-	if CMD.Connections.Voo then CMD.Connections.Voo:Disconnect(); CMD.Connections.Voo = nil end
-	pcall(function()
-		local char = LP.Character
-		if char then
-			local hrp = char:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				local bg = hrp:FindFirstChild("DA_BG"); if bg then bg:Destroy() end
-				local bv = hrp:FindFirstChild("DA_BV"); if bv then bv:Destroy() end
-			end
-			local hum = char:FindFirstChild("Humanoid")
-			if hum then hum.PlatformStand = false end
+	UserInputService.InputChanged:Connect(function(input)
+		if arrastando and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local viewport = workspace.CurrentCamera.ViewportSize
+			local tamanho = alvoMovido.AbsoluteSize
+			local novaPos = Vector2.new(input.Position.X, input.Position.Y) - offset
+			local x = math.clamp(novaPos.X, 0, math.max(viewport.X - tamanho.X, 0))
+			local y = math.clamp(novaPos.Y, 0, math.max(viewport.Y - tamanho.Y, 0))
+			alvoMovido.Position = UDim2.fromOffset(x, y)
 		end
 	end)
-	Notify("VOO", "Desativado", 2)
-end
 
-function CMD:Velocidade(valor)
-	valor = math.clamp(valor or 16, 1, 400)
-	CMD.Active.Velocidade = valor
-	pcall(function()
-		local char = LP.Character
-		if char then local hum = char:FindFirstChild("Humanoid"); if hum then hum.WalkSpeed = valor end end
-	end)
-	Notify("VELOCIDADE", "Definida: " .. valor, 2, "s")
-end
-
-function CMD:ResetarVelocidade()
-	CMD.Active.Velocidade = nil
-	pcall(function()
-		local char = LP.Character
-		if char then local hum = char:FindFirstChild("Humanoid"); if hum then hum.WalkSpeed = 16 end end
-	end)
-	Notify("VELOCIDADE", "Resetada (16)", 2)
-end
-
-function CMD:AtravessarParedes()
-	CMD.Active.NoClip = not CMD.Active.NoClip
-	pcall(function()
-		local char = LP.Character
-		if char then
-			for _, part in pairs(char:GetDescendants()) do
-				if part:IsA("BasePart") then part.CanCollide = not CMD.Active.NoClip end
-			end
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			arrastando = false
 		end
 	end)
-	Notify("ATRAVESSAR", CMD.Active.NoClip and "Ativado" or "Desativado", 2)
 end
 
-function CMD:Invisibilidade()
-	CMD.Active.Invisivel = not CMD.Active.Invisivel
-	pcall(function()
-		local char = LP.Character
-		if char then
-			local tr = CMD.Active.Invisivel and 0.85 or 0
-			for _, part in pairs(char:GetChildren()) do
-				if part:IsA("BasePart") then part.Transparency = tr end
-			end
-		end
-	end)
-	Notify("INVISIBILIDADE", CMD.Active.Invisivel and "Ativada" or "Desativada", 2)
+conectarArraste(botaoFlutuante, botaoFlutuante)
+conectarArraste(barraTitulo, painel)
+
+local function liberarMouse()
+	comportamentoMouseAnterior = UserInputService.MouseBehavior
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	UserInputService.MouseIconEnabled = true
 end
 
-function CMD:Teleporte(nome)
-	local alvo = Players:FindFirstChild(nome)
-	if not alvo or not alvo.Character then Notify("ERRO", "Jogador não encontrado", 2, "e") return end
-	local hrp = alvo.Character:FindFirstChild("HumanoidRootPart")
-	if hrp and LP.Character then
-		LP.Character:MoveTo(hrp.Position + Vector3.new(0, 3, 0))
-		Notify("TELEPORTE", "Para: " .. nome, 2, "s")
+local function restaurarMouse()
+	if comportamentoMouseAnterior ~= nil then
+		UserInputService.MouseBehavior = comportamentoMouseAnterior
+		comportamentoMouseAnterior = nil
 	end
 end
 
-function CMD:ESP_Adicionar(nome)
-	local alvo = Players:FindFirstChild(nome)
-	if not alvo or CMD.ESP[alvo.Name] then return end
-	pcall(function()
-		local char = alvo.Character
-		if not char then return end
-		local cabeca = char:FindFirstChild("Head")
-		if not cabeca then return end
-		local hl = Create("Highlight", {
-			Name = "DA_ESP",
-			FillColor = CFG.C.Red,
-			OutlineColor = CFG.C.Acc,
-			FillTransparency = 0.5,
-			Adornee = char,
-			Parent = char,
-		})
-		local bb = nil
-		if D.ESP_Name then
-			bb = Create("BillboardGui", {
-				Name = "DA_ESP_BB",
-				Size = UDim2.new(0, 200, 0, 40),
-				Adornee = cabeca,
-				StudsOffset = Vector3.new(0, 3.5, 0),
-				AlwaysOnTop = true,
-				Parent = cabeca,
-			})
-			local bg = Create("Frame", {
-				Size = UDim2.new(1, 0, 1, 0),
-				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-				BackgroundTransparency = 0.45,
-				BorderSizePixel = 0,
-				Parent = bb,
-			})
-			Corner(bg, 4)
-			Create("TextLabel", {
-				Size = UDim2.new(1, 0, 0, 20),
-				Text = alvo.Name,
-				TextColor3 = CFG.C.T1,
-				Font = CFG.F.B,
-				TextSize = 13,
-				BackgroundTransparency = 1,
-				Parent = bg,
-			})
-			Create("TextLabel", {
-				Name = "ESP_Info",
-				Size = UDim2.new(1, 0, 0, 18),
-				Position = UDim2.new(0, 0, 0, 20),
-				Text = "",
-				TextColor3 = CFG.C.Acc,
-				Font = CFG.F.S,
-				TextSize = 11,
-				BackgroundTransparency = 1,
-				Parent = bg,
-			})
-		end
-		CMD.ESP[alvo.Name] = {HL = hl, BB = bb, Player = alvo}
-		if CMD.ESP[alvo.Name].RC then CMD.ESP[alvo.Name].RC:Disconnect() end
-		CMD.ESP[alvo.Name].RC = alvo.CharacterAdded:Connect(function()
-			local old = CMD.ESP[alvo.Name]
-			if old then
-				pcall(function() old.HL:Destroy() end)
-				pcall(function() if old.BB then old.BB:Destroy() end end)
-			end
-			CMD.ESP[alvo.Name] = nil
-			task.wait(0.4)
-			CMD:ESP_Adicionar(nome)
-		end)
-	end)
-	Notify("ESP", "Ativado: " .. nome, 2, "s")
-end
+local function abrirFecharPainel()
+	estado.painelAberto = not estado.painelAberto
 
-function CMD:ESP_Todos()
-	for _, p in pairs(Players:GetPlayers()) do
-		if p ~= LP then CMD:ESP_Adicionar(p.Name) end
-	end
-	Notify("ESP", "Ativado para todos", 2, "s")
-end
-
-function CMD:ESP_Remover(nome)
-	local entry = CMD.ESP[nome]
-	if entry then
-		pcall(function() entry.RC:Disconnect() end)
-		pcall(function() entry.HL:Destroy() end)
-		pcall(function() if entry.BB then entry.BB:Destroy() end end)
-		CMD.ESP[nome] = nil
-	end
-end
-
-function CMD:ESP_RemoverTodos()
-	for nome in pairs(CMD.ESP) do CMD:ESP_Remover(nome) end
-	Notify("ESP", "Removido de todos", 2)
-end
-
-function CMD:ESP_AlternarNomes()
-	D.ESP_Name = not D.ESP_Name
-	local salvo = {}
-	for n in pairs(CMD.ESP) do salvo[n] = true end
-	CMD:ESP_RemoverTodos()
-	for n in pairs(salvo) do CMD:ESP_Adicionar(n) end
-	Notify("ESP", D.ESP_Name and "Nomes visíveis" or "Nomes ocultos", 2)
-end
-
-function CMD:Marcar(nome)
-	local alvo = Players:FindFirstChild(nome)
-	if not alvo or not alvo.Character then return end
-	local cabeca = alvo.Character:FindFirstChild("Head")
-	if not cabeca then return end
-	local antigo = cabeca:FindFirstChild("DA_Pin")
-	if antigo then antigo:Destroy() end
-	local pin = Create("BillboardGui", {
-		Name = "DA_Pin",
-		Size = UDim2.new(0, 40, 0, 40),
-		Adornee = cabeca,
-		StudsOffset = Vector3.new(0, 4, 0),
-		AlwaysOnTop = true,
-		Parent = cabeca,
-	})
-	Create("TextLabel", {
-		Size = UDim2.new(1, 0, 1, 0),
-		Text = "PIN",
-		TextColor3 = CFG.C.Acc,
-		Font = CFG.F.B,
-		TextSize = 14,
-		BackgroundTransparency = 1,
-		Parent = pin,
-	})
-	Notify("MARCADO", nome, 2, "s")
-end
-
-function CMD:Seguir(nome)
-	local alvo = Players:FindFirstChild(nome)
-	if not alvo then return end
-	if CMD.Connections.Seguir then CMD.Connections.Seguir:Disconnect() end
-	CMD.Connections.Seguir = RunService.RenderStepped:Connect(function()
-		pcall(function()
-			if not alvo.Parent then CMD:PararSeguir() return end
-			if not alvo.Character then return end
-			local thrp = alvo.Character:FindFirstChild("HumanoidRootPart")
-			local mc = LP.Character
-			if thrp and mc then mc:MoveTo(thrp.Position + Vector3.new(3, 0, 3)) end
-		end)
-	end)
-	Notify("SEGUINDO", nome, 2, "s")
-end
-
-function CMD:PararSeguir()
-	if CMD.Connections.Seguir then CMD.Connections.Seguir:Disconnect(); CMD.Connections.Seguir = nil end
-	Notify("SEGUIR", "Parado", 2)
-end
-
-function CMD:Renascer()
-	pcall(function() if LP.Character then LP.Character:BreakJoints() end LP:LoadCharacter() end)
-	Notify("RENASCER", "Executado", 2, "s")
-end
-
-function CMD:CameraLivre()
-	CMD.Active.CameraLivre = not CMD.Active.CameraLivre
-	LP.CameraMaxZoomDistance = CMD.Active.CameraLivre and 9999 or 20
-	Notify("CÂMERA", CMD.Active.CameraLivre and "Zoom infinito" or "Normal", 2)
-end
-
-function CMD:VerInventario(nome)
-	local alvo = Players:FindFirstChild(nome)
-	if not alvo then Notify("ERRO", "Jogador não encontrado", 2, "e") return end
-	local itens = {}
-	local mochila = alvo:FindFirstChild("Backpack")
-	if mochila then
-		for _, ferramenta in pairs(mochila:GetChildren()) do
-			if ferramenta:IsA("Tool") then table.insert(itens, {Nome = ferramenta.Name, Local = "Mochila"}) end
-		end
-	end
-	if alvo.Character then
-		for _, ferramenta in pairs(alvo.Character:GetChildren()) do
-			if ferramenta:IsA("Tool") then table.insert(itens, {Nome = ferramenta.Name, Local = "Equipado"}) end
-		end
-	end
-	if _G.DA10_Inv then _G.DA10_Inv:Destroy() end
-	local invUI = Create("ScreenGui", {Name = "DA10_Inv", Parent = SAFE, ZIndexBehavior = Enum.ZIndexBehavior.Sibling})
-	_G.DA10_Inv = invUI
-	local altura = math.min(60 + #itens * 35, 400)
-	local painel = Create("CanvasGroup", {
-		Size = UDim2.new(MOBILE and 0.9 or 0.35, 0, 0, altura),
-		Position = UDim2.new(0.5, 0, 0.5, 0),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		BackgroundColor3 = CFG.C.S1,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		Active = true,
-		Draggable = true,
-		Parent = invUI,
-	})
-	Corner(painel, 10)
-	Stroke(painel, CFG.C.Red, 0.3, 2)
-	Gradient(painel, "bg")
-	Create("Frame", {Size = UDim2.new(1, 0, 0, 3), BackgroundColor3 = CFG.C.Red, BorderSizePixel = 0, Parent = painel})
-	Create("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 30),
-		Position = UDim2.new(0, 0, 0, 10),
-		Text = "INVENTÁRIO: " .. alvo.Name,
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.T,
-		TextSize = MOBILE and 16 or 14,
-		BackgroundTransparency = 1,
-		Parent = painel,
-	})
-	local lista = Create("ScrollingFrame", {
-		Size = UDim2.new(1, -20, 1, -80),
-		Position = UDim2.new(0, 10, 0, 45),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ScrollBarThickness = 4,
-		ScrollBarImageColor3 = CFG.C.RedD,
-		CanvasSize = UDim2.new(0, 0, 0, #itens * 35),
-		Parent = painel,
-	})
-	Create("UIListLayout", {Padding = UDim.new(0, 4), Parent = lista})
-	if #itens == 0 then
-		Create("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 30),
-			Text = "Inventário vazio",
-			TextColor3 = CFG.C.T3,
-			Font = CFG.F.S,
-			TextSize = 13,
-			BackgroundTransparency = 1,
-			Parent = lista,
-		})
+	if estado.painelAberto then
+		painel.Visible = true
+		painelEscala.Scale = 0.9
+		TweenService:Create(painelEscala, TWEEN_ABRIR, { Scale = 1 }):Play()
+		liberarMouse()
 	else
-		for _, item in ipairs(itens) do
-			local linha = Create("Frame", {
-				Size = UDim2.new(1, 0, 0, 30),
-				BackgroundColor3 = CFG.C.S2,
-				BorderSizePixel = 0,
-				Parent = lista,
-			})
-			Corner(linha, 4)
-			Gradient(linha, "card")
-			Create("TextLabel", {
-				Size = UDim2.new(0.6, 0, 1, 0),
-				Position = UDim2.new(0, 8, 0, 0),
-				Text = item.Nome,
-				TextColor3 = CFG.C.T1,
-				Font = CFG.F.R,
-				TextSize = 13,
-				BackgroundTransparency = 1,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Parent = linha,
-			})
-			Create("TextLabel", {
-				Size = UDim2.new(0.35, 0, 1, 0),
-				Position = UDim2.new(0.65, 0, 0, 0),
-				Text = "[" .. item.Local .. "]",
-				TextColor3 = item.Local == "Equipado" and CFG.C.Grn or CFG.C.T3,
-				Font = CFG.F.S,
-				TextSize = 11,
-				BackgroundTransparency = 1,
-				TextXAlignment = Enum.TextXAlignment.Right,
-				Parent = linha,
-			})
-		end
+		painel.Visible = false
+		restaurarMouse()
 	end
-	local fechar = Create("TextButton", {
-		Size = UDim2.new(1, -20, 0, 32),
-		Position = UDim2.new(0, 10, 1, -40),
-		Text = "FECHAR",
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.B,
-		TextSize = 13,
-		BackgroundColor3 = CFG.C.Red,
-		BorderSizePixel = 0,
-		AutoButtonColor = false,
-		Parent = painel,
-	})
-	Corner(fechar, 6)
-	Gradient(fechar, "btnRed")
-	fechar.MouseButton1Click:Connect(function() invUI:Destroy() end)
 end
 
-function CMD:VerPerfil(nome)
-	local alvo = Players:FindFirstChild(nome)
-	if not alvo then Notify("ERRO", "Jogador não encontrado", 2, "e") return end
-	local txt = nome .. " | @" .. alvo.DisplayName .. " | ID:" .. alvo.UserId .. " | " .. (alvo.AccountAge or 0) .. " dias"
-	Notify("PERFIL", txt, 5)
+local function fecharPainel()
+	estado.painelAberto = false
+	painel.Visible = false
+	restaurarMouse()
 end
 
-function CMD:AntiCheat()
-	if CMD.Active.AntiCheat then
-		CMD.Active.AntiCheat = false
-		Notify("ANTI-CHEAT", "Desativado", 2)
+botaoFlutuante.MouseButton1Click:Connect(abrirFecharPainel)
+botaoFechar.MouseButton1Click:Connect(fecharPainel)
+
+UserInputService.InputBegan:Connect(function(input, processadoPelaUI)
+	if processadoPelaUI then
 		return
 	end
-	CMD.Active.AntiCheat = true
-	task.spawn(function()
-		while CMD.Active.AntiCheat do
-			task.wait(2)
-			pcall(function()
-				local hum = LP.Character and LP.Character:FindFirstChild("Humanoid")
-				if hum and hum.WalkSpeed > 100 and not CMD.Active.Velocidade then
-					Notify("ANTI-CHEAT", "Velocidade suspeita: " .. math.floor(hum.WalkSpeed), 2, "w")
-				end
-			end)
-		end
-	end)
-	Notify("ANTI-CHEAT", "Ativado", 2, "s")
-end
-
-function CMD:Banir(nome)
-	if nome == "" or nome == LP.Name or nome == CFG.Owner then return end
-	if not table.find(D.Banned, nome) then
-		table.insert(D.Banned, nome)
-		Notify("BANIDO", nome .. " foi banido do painel", 2, "e")
+	if input.KeyCode == TECLA_ABRIR_PAINEL then
+		abrirFecharPainel()
 	end
+end)
+
+-- ===== TIMES AMIGOS =====
+
+local function jogadorEhAmigo(jogador)
+	return jogador.Team ~= nil and equipesAmigas[jogador.Team] == true
 end
 
-function CMD:Desbanir(nome)
-	local idx = table.find(D.Banned, nome)
-	if idx then
-		table.remove(D.Banned, idx)
-		Notify("DESBANIDO", nome, 2, "s")
+local function removerEspDoJogador(jogador)
+	local objetos = espObjetos[jogador]
+	if not objetos then
+		return
 	end
-end
 
--- ===================================================================
--- CHAT DA STAFF — MENSAGENS AUTOMÁTICAS (feature 4)
--- ===================================================================
--- Em vez de texto livre (que o filtro de chat do Roblox pode bloquear quando
--- um dos admins é menor de idade / conta não verificada), os admins disparam
--- frases prontas em CFG.PresetMsgs. Elas são retransmitidas pelo servidor
--- para TODOS os admins conectados — isso é chat de verdade entre clientes
--- diferentes, e não só uma lista local visível pra quem enviou.
-function CMD:EnviarAlerta(mensagem, alvoNome)
-	if not mensagem or mensagem == "" then return end
-	alvoNome = alvoNome or ""
-	if RemoteAlerta then
-		RemoteAlerta:FireServer(mensagem, alvoNome)
-	else
-		-- Sem o script de servidor instalado (ver DistritoAdmin_Servidor.lua),
-		-- a mensagem só pode aparecer localmente.
-		local texto = alvoNome ~= "" and (mensagem .. "  →  " .. alvoNome) or mensagem
-		ChatSystem:AddStaffMsg(LP.Name, texto, LP.UserId)
-		Notify("CHAT DA STAFF", "Servidor não conectado: mensagem ficou só com você.", 4, "w")
+	if objetos.highlight then
+		objetos.highlight:Destroy()
 	end
-end
-
-if RemoteAlerta then
-	RemoteAlerta.OnClientEvent:Connect(function(nomeRemetente, mensagem, alvoNome, userId)
-		local texto = mensagem
-		if alvoNome and alvoNome ~= "" then
-			texto = texto .. "  →  " .. alvoNome
-		end
-		ChatSystem:AddStaffMsg(nomeRemetente, texto, userId)
-		if nomeRemetente ~= LP.Name then
-			Notify("STAFF: " .. nomeRemetente, texto, 4, "w")
-		end
-	end)
-end
-
--- ===================================================================
--- PERFIS DE JOGADORES — DATA DE CRIAÇÃO CONFIRMADA (feature 5)
--- ===================================================================
--- Consulta o servidor (que chama a API pública do Roblox) e guarda em cache
--- por UserId. Se o servidor não estiver instalado ou a consulta falhar, cai
--- para uma data ESTIMADA a partir de Player.AccountAge (dias desde a criação).
-local PerfilCache = {}
-function CMD:ObterInfoConta(alvo)
-	local uid = alvo.UserId
-	if PerfilCache[uid] then return PerfilCache[uid] end
-	local resultado = nil
-	if RemoteConta then
-		local ok, dados = pcall(function() return RemoteConta:InvokeServer(uid) end)
-		if ok and typeof(dados) == "table" and dados.Ok and dados.Criado then
-			resultado = {Texto = dados.Criado, Confirmado = true}
+	if objetos.partesHighlight then
+		for _, highlight in pairs(objetos.partesHighlight) do
+			highlight:Destroy()
 		end
 	end
-	if not resultado then
-		local dias = alvo.AccountAge or 0
-		local ok, dataEstim = pcall(function() return os.date("!*t", os.time() - dias * 86400) end)
-		if ok and dataEstim then
-			resultado = {
-				Texto = string.format("%02d/%02d/%04d (estimado)", dataEstim.day, dataEstim.month, dataEstim.year),
-				Confirmado = false,
-			}
-		else
-			resultado = {Texto = "Desconhecida", Confirmado = false}
+	if objetos.billboard then
+		objetos.billboard:Destroy()
+	end
+
+	espObjetos[jogador] = nil
+end
+
+local function obterPartesDoCorpo(personagem)
+	local partes = {}
+	for _, filho in ipairs(personagem:GetChildren()) do
+		if filho:IsA("BasePart") and filho.Name ~= "HumanoidRootPart" and filho.Transparency < 1 then
+			table.insert(partes, filho)
 		end
 	end
-	PerfilCache[uid] = resultado
-	return resultado
+	return partes
 end
 
--- ===================================================================
--- INTERFACE
--- ===================================================================
-local UI = {}
-local MainGui, LoginFrame, MainPanel, MinimizedBar = nil, nil, nil, nil
-local Sidebar, ContentArea = nil, nil
-local Sections, NavButtons = {}, {}
-local CurrentTab = "PAINEL"
-local OriginalSize, OriginalPosition = nil, nil
-
-local ABAS = {
-	{"PAINEL", "Painel"},
-	{"STAFF", "Staff"},
-	{"PERFIS", "Perfis"},
-	{"CHAT", "Chat Logs"},
-	{"MOVIMENTO", "Movimento"},
-	{"ESP", "ESP"},
-	{"TELEPORTE", "Teleporte"},
-	{"UTILITARIOS", "Utilitários"},
-	{"MODERACAO", "Moderação"},
-	{"CONFIG", "Configurações"},
-}
-
-local function MudarAba(nome)
-	if not Sections[nome] then return end
-	CurrentTab = nome
-	for n, btn in pairs(NavButtons) do
-		local ativo = n == nome
-		pcall(function()
-			Gradient(btn, ativo and "navActive" or "navInactive")
-			local lbl = btn:FindFirstChild("Rotulo")
-			if lbl then lbl.TextColor3 = ativo and CFG.C.T1 or CFG.C.T2 end
-			local ind = btn:FindFirstChild("Indicador")
-			if ind then ind.Visible = ativo end
-		end)
+local function obterNomeExibicao(jogador)
+	if estado.modoNome == "apelido" then
+		return jogador.DisplayName
 	end
-	for n, sec in pairs(Sections) do sec.Visible = (n == nome) end
-	PopularSecao(nome)
+	return jogador.Name
 end
 
--- ===================================================================
--- BOTÃO ESTILIZADO COM HOVER, CLIQUE E GRADIENTE
--- ===================================================================
-local function Botao(parent, y, texto, tipoCor, callback, altura)
-	local corMap = {
-		red = "btnRed",
-		green = "btnGreen",
-		blue = "btnBlue",
-		gray = "btnGray",
+local function criarEspNoJogador(jogador)
+	if jogador == jogadorLocal or jogadorEhAmigo(jogador) then
+		return
+	end
+
+	local personagem = jogador.Character
+	if not personagem then
+		return
+	end
+
+	local raizPersonagem = personagem:FindFirstChild("HumanoidRootPart")
+	local humanoid = personagem:FindFirstChildOfClass("Humanoid")
+	if not raizPersonagem or not humanoid then
+		return
+	end
+
+	local raizLocal = jogadorLocal.Character and jogadorLocal.Character:FindFirstChild("HumanoidRootPart")
+	if raizLocal and (raizPersonagem.Position - raizLocal.Position).Magnitude > estado.distanciaMaximaEsp then
+		return
+	end
+
+	removerEspDoJogador(jogador)
+
+	local dados = {
+		personagem = personagem,
+		billboard = nil,
+		distanciaLabel = nil,
+		nomeLabel = nil,
+		highlight = nil,
+		partesHighlight = nil,
 	}
-	local tipoGrad = corMap[tipoCor] or "btnRed"
-	local btnHeight = altura or (MOBILE and 46 or 40)
-	local btn = Create("TextButton", {
-		Size = UDim2.new(1, 0, 0, btnHeight),
-		Position = UDim2.new(0, 0, 0, y),
-		Text = "",
-		BackgroundColor3 = Color3.fromRGB(40, 40, 50),
-		BorderSizePixel = 0,
-		AutoButtonColor = false,
-		Parent = parent,
-	})
-	Corner(btn, 6)
-	Gradient(btn, tipoGrad)
-	Stroke(btn, Color3.fromRGB(60, 60, 75), 0.2, 1)
-	Create("TextLabel", {
-		Size = UDim2.new(1, 0, 1, 0),
-		Text = texto,
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.B,
-		TextSize = MOBILE and 14 or 12,
-		BackgroundTransparency = 1,
-		ZIndex = 2,
-		Parent = btn,
-	})
-	btn.MouseEnter:Connect(function()
-		Tween(btn, {BackgroundColor3 = Color3.fromRGB(55, 55, 68)}, 0.15)
-		Stroke(btn, Color3.fromRGB(80, 80, 95), 0.3, 1)
-	end)
-	btn.MouseLeave:Connect(function()
-		Tween(btn, {BackgroundColor3 = Color3.fromRGB(40, 40, 50)}, 0.15)
-		Stroke(btn, Color3.fromRGB(60, 60, 75), 0.2, 1)
-	end)
-	btn.MouseButton1Down:Connect(function()
-		Tween(btn, {Size = UDim2.new(0.96, 0, 0, btnHeight - 2)}, 0.08)
-	end)
-	btn.MouseButton1Up:Connect(function()
-		Tween(btn, {Size = UDim2.new(1, 0, 0, btnHeight)}, 0.08)
-	end)
-	btn.MouseButton1Click:Connect(callback)
-	return btn
+
+	if estado.modoEsp == "inteligente" then
+		dados.partesHighlight = {}
+		for _, parte in ipairs(obterPartesDoCorpo(personagem)) do
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "ESP_Highlight"
+			highlight.FillColor = CORES.espOculto
+			highlight.FillTransparency = 0.7
+			highlight.OutlineColor = CORES.espOculto
+			highlight.OutlineTransparency = 0
+			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+			highlight.Adornee = parte
+			highlight.Parent = personagem
+			dados.partesHighlight[parte] = highlight
+		end
+	else
+		local highlight = Instance.new("Highlight")
+		highlight.Name = "ESP_Highlight"
+		highlight.FillColor = CORES.espNormal
+		highlight.FillTransparency = 0.7
+		highlight.OutlineColor = CORES.espNormal
+		highlight.OutlineTransparency = 0
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.Adornee = personagem
+		highlight.Parent = personagem
+		dados.highlight = highlight
+	end
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "ESP_Billboard"
+	billboard.Size = UDim2.fromOffset(160, 36)
+	billboard.StudsOffset = Vector3.new(0, 2.6, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Adornee = raizPersonagem
+	billboard.Parent = personagem
+	dados.billboard = billboard
+
+	local nomeLabel = Instance.new("TextLabel")
+	nomeLabel.Size = UDim2.new(1, 0, 0, 18)
+	nomeLabel.BackgroundTransparency = 1
+	nomeLabel.Text = obterNomeExibicao(jogador)
+	nomeLabel.Visible = estado.mostrarNomes
+	nomeLabel.Font = FONTE_BOLD
+	nomeLabel.TextSize = 13
+	nomeLabel.TextColor3 = CORES.textoPrincipal
+	nomeLabel.TextStrokeTransparency = 0.5
+	nomeLabel.Parent = billboard
+	dados.nomeLabel = nomeLabel
+
+	local distanciaLabel = Instance.new("TextLabel")
+	distanciaLabel.Name = "Distancia"
+	distanciaLabel.Size = UDim2.new(1, 0, 0, 16)
+	distanciaLabel.Position = UDim2.new(0, 0, 0, 18)
+	distanciaLabel.BackgroundTransparency = 1
+	distanciaLabel.Text = ""
+	distanciaLabel.Font = FONTE
+	distanciaLabel.TextSize = 11
+	distanciaLabel.TextColor3 = CORES.textoSecundario
+	distanciaLabel.TextStrokeTransparency = 0.5
+	distanciaLabel.Parent = billboard
+	dados.distanciaLabel = distanciaLabel
+
+	espObjetos[jogador] = dados
 end
 
--- ===================================================================
--- BOTÃO DE CONTROLE (MINIMIZAR/FECHAR)
--- ===================================================================
-local function BotaoControle(parent, texto, callback)
-	local btn = Create("TextButton", {
-		Size = UDim2.new(0, 30, 0, 30),
-		Text = "",
-		BackgroundColor3 = Color3.fromRGB(30, 30, 38),
-		BorderSizePixel = 0,
-		AutoButtonColor = false,
-		Parent = parent,
-	})
-	Corner(btn, 6)
-	Gradient(btn, "btnGray")
-	Stroke(btn, Color3.fromRGB(50, 50, 60), 0.3, 1)
-	Create("TextLabel", {
-		Size = UDim2.new(1, 0, 1, 0),
-		Text = texto,
-		TextColor3 = CFG.C.T2,
-		Font = CFG.F.B,
-		TextSize = 14,
-		BackgroundTransparency = 1,
-		ZIndex = 2,
-		Parent = btn,
-	})
-	btn.MouseEnter:Connect(function()
-		if texto == "X" then
-			Tween(btn, {BackgroundColor3 = Color3.fromRGB(180, 30, 30)}, 0.15)
-			btn:FindFirstChildOfClass("TextLabel").TextColor3 = CFG.C.T1
+local function alternarModoNome()
+	estado.modoNome = estado.modoNome == "username" and "apelido" or "username"
+	rotuloNome.Text = estado.modoNome == "username" and "NOME: USERNAME" or "NOME: APELIDO"
+
+	for jogador, objetos in pairs(espObjetos) do
+		if objetos.nomeLabel then
+			objetos.nomeLabel.Text = obterNomeExibicao(jogador)
+		end
+	end
+end
+
+botaoNome.MouseButton1Click:Connect(alternarModoNome)
+
+local function alternarMostrarNomes()
+	estado.mostrarNomes = not estado.mostrarNomes
+	statusMostrarNomes.Text = estado.mostrarNomes and "ON" or "OFF"
+	statusMostrarNomes.TextColor3 = estado.mostrarNomes and CORES.textoPrincipal or CORES.textoSecundario
+	dotMostrarNomes.BackgroundColor3 = estado.mostrarNomes and CORES.espVisivel or CORES.textoSecundario
+
+	for _, objetos in pairs(espObjetos) do
+		if objetos.nomeLabel then
+			objetos.nomeLabel.Visible = estado.mostrarNomes
+		end
+	end
+end
+
+botaoMostrarNomes.MouseButton1Click:Connect(alternarMostrarNomes)
+
+local function sincronizarEsp()
+	if estado.modoEsp == "off" then
+		return
+	end
+
+	local raizLocal = jogadorLocal.Character and jogadorLocal.Character:FindFirstChild("HumanoidRootPart")
+
+	for _, jogador in ipairs(Players:GetPlayers()) do
+		if jogador ~= jogadorLocal then
+			local personagem = jogador.Character
+			local raizAlvo = personagem and personagem:FindFirstChild("HumanoidRootPart")
+			local temEsp = espObjetos[jogador] ~= nil
+			local deveTerEsp = false
+
+			if raizAlvo and raizLocal and not jogadorEhAmigo(jogador) then
+				local distancia = (raizAlvo.Position - raizLocal.Position).Magnitude
+				deveTerEsp = distancia <= estado.distanciaMaximaEsp
+			end
+
+			if deveTerEsp and not temEsp then
+				criarEspNoJogador(jogador)
+			elseif not deveTerEsp and temEsp then
+				removerEspDoJogador(jogador)
+			end
+		end
+	end
+end
+
+local function reconstruirFilaVisibilidade()
+	filaVisibilidade = {}
+	for jogador in pairs(espObjetos) do
+		table.insert(filaVisibilidade, jogador)
+	end
+	indiceFilaVisibilidade = 1
+end
+
+local function atualizarBotaoTime(time)
+	local dados = botoesTimes[time]
+	if not dados then
+		return
+	end
+
+	local amiga = equipesAmigas[time] == true
+	TweenService:Create(dados.botao, TWEEN_RAPIDO, { BackgroundColor3 = amiga and CORES.ativo or CORES.inativo }):Play()
+	dados.status.Text = amiga and "AMIGA" or ""
+end
+
+local function criarBotaoTime(time)
+	local botao = Instance.new("TextButton")
+	botao.Name = "Time_" .. time.Name
+	botao.Size = UDim2.new(1, 0, 0, 34)
+	botao.BackgroundColor3 = CORES.inativo
+	botao.BorderSizePixel = 0
+	botao.Text = ""
+	botao.AutoButtonColor = false
+	botao.Active = true
+	botao.Parent = listaTimes
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 7)
+	corner.Parent = botao
+
+	local indicador = Instance.new("Frame")
+	indicador.Size = UDim2.fromOffset(12, 12)
+	indicador.Position = UDim2.new(0, 10, 0.5, -6)
+	indicador.BackgroundColor3 = time.TeamColor.Color
+	indicador.BorderSizePixel = 0
+	indicador.Parent = botao
+
+	local indicadorCorner = Instance.new("UICorner")
+	indicadorCorner.CornerRadius = UDim.new(1, 0)
+	indicadorCorner.Parent = indicador
+
+	local nomeLabel = Instance.new("TextLabel")
+	nomeLabel.Size = UDim2.new(1, -92, 1, 0)
+	nomeLabel.Position = UDim2.new(0, 30, 0, 0)
+	nomeLabel.BackgroundTransparency = 1
+	nomeLabel.Text = time.Name
+	nomeLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nomeLabel.Font = FONTE
+	nomeLabel.TextSize = 12
+	nomeLabel.TextColor3 = CORES.textoPrincipal
+	nomeLabel.Parent = botao
+
+	local status = Instance.new("TextLabel")
+	status.Size = UDim2.fromOffset(55, 34)
+	status.Position = UDim2.new(1, -62, 0, 0)
+	status.BackgroundTransparency = 1
+	status.Text = ""
+	status.Font = FONTE_BOLD
+	status.TextSize = 10
+	status.TextColor3 = CORES.textoPrincipal
+	status.Parent = botao
+
+	botoesTimes[time] = { botao = botao, status = status }
+
+	aplicarHover(botao, function()
+		return equipesAmigas[time] == true and CORES.ativo or CORES.inativo
+	end, function()
+		return equipesAmigas[time] == true and CORES.ativoHover or CORES.inativoHover
+	end)
+
+	botao.MouseButton1Click:Connect(function()
+		if equipesAmigas[time] then
+			equipesAmigas[time] = nil
 		else
-			Tween(btn, {BackgroundColor3 = Color3.fromRGB(50, 50, 60)}, 0.15)
-			btn:FindFirstChildOfClass("TextLabel").TextColor3 = CFG.C.T1
+			equipesAmigas[time] = true
 		end
+		atualizarBotaoTime(time)
+		sincronizarEsp()
 	end)
-	btn.MouseLeave:Connect(function()
-		Tween(btn, {BackgroundColor3 = Color3.fromRGB(30, 30, 38)}, 0.15)
-		btn:FindFirstChildOfClass("TextLabel").TextColor3 = CFG.C.T2
-	end)
-	btn.MouseButton1Down:Connect(function()
-		Tween(btn, {Size = UDim2.new(0, 28, 0, 28)}, 0.08)
-	end)
-	btn.MouseButton1Up:Connect(function()
-		Tween(btn, {Size = UDim2.new(0, 30, 0, 30)}, 0.08)
-	end)
-	btn.MouseButton1Click:Connect(callback)
-	return btn
 end
 
-local function Entrada(parent, y, placeholder, padrao, altura)
-	local holder = Create("Frame", {
-		Size = UDim2.new(1, 0, 0, altura or (MOBILE and 44 or 38)),
-		Position = UDim2.new(0, 0, 0, y),
-		BackgroundColor3 = CFG.C.S2,
-		BorderSizePixel = 0,
-		Parent = parent,
-	})
-	Corner(holder, 6)
-	Stroke(holder)
-	Gradient(holder, "card")
-	local box = Create("TextBox", {
-		Size = UDim2.new(1, -16, 1, 0),
-		Position = UDim2.new(0, 8, 0, 0),
-		PlaceholderText = placeholder or "",
-		PlaceholderColor3 = CFG.C.T3,
-		Text = padrao or "",
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.R,
-		TextSize = MOBILE and 14 or 12,
-		BackgroundTransparency = 1,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 2,
-		Parent = holder,
-	})
-	return box
-end
-
-local function Rotulo(parent, y, texto, tamanho, cor)
-	return Create("TextLabel", {
-		Size = UDim2.new(1, 0, 0, tamanho or 20),
-		Position = UDim2.new(0, 0, 0, y),
-		Text = texto,
-		TextColor3 = cor or CFG.C.T2,
-		Font = CFG.F.R,
-		TextSize = MOBILE and 13 or 11,
-		BackgroundTransparency = 1,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 2,
-		Parent = parent,
-	})
-end
-
-local function Titulo(parent, y, texto)
-	local lbl = Create("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 22),
-		Position = UDim2.new(0, 0, 0, y),
-		Text = texto,
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.T,
-		TextSize = MOBILE and 17 or 15,
-		BackgroundTransparency = 1,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 2,
-		Parent = parent,
-	})
-	local linha = Create("Frame", {
-		Size = UDim2.new(0, 34, 0, 3),
-		Position = UDim2.new(0, 0, 0, 25),
-		BackgroundColor3 = CFG.C.Acc,
-		BorderSizePixel = 0,
-		ZIndex = 2,
-		Parent = parent,
-	})
-	Corner(linha, 2)
-	Create("UIGradient", {
-		Color = ColorSequence.new(CFG.C.Acc, CFG.C.RedD),
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0),
-			NumberSequenceKeypoint.new(1, 0.6),
-		}),
-		Parent = linha,
-	})
-	return lbl
-end
-
-function PopularSecao(nome)
-	local sec = Sections[nome]
-	if not sec then return end
-	for _, filho in pairs(sec:GetChildren()) do
-		if not filho:IsA("UIPadding") then filho:Destroy() end
-	end
-	if not sec:FindFirstChildOfClass("UIPadding") then
-		Create("UIPadding", {
-			PaddingLeft = UDim.new(0, 16),
-			PaddingRight = UDim.new(0, 16),
-			PaddingTop = UDim.new(0, 12),
-			Parent = sec,
-		})
-	end
-	local Y = 0
-	if nome == "PAINEL" then
-		Titulo(sec, Y, "PAINEL DE CONTROLE"); Y = Y + 36
-		local grid = Create("Frame", {
-			Size = UDim2.new(1, 0, 0, MOBILE and 170 or 76),
-			Position = UDim2.new(0, 0, 0, Y),
-			BackgroundTransparency = 1,
-			Parent = sec,
-		})
-		Create("UIGridLayout", {
-			CellSize = MOBILE and UDim2.new(0.48, -5, 0, 78) or UDim2.new(0.23, -6, 1, 0),
-			CellPadding = UDim2.new(0, 8, 0, 8),
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Parent = grid,
-		})
-		local ok, ping = pcall(function() return math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
-		local function CriarCard(ordem, titulo, valor, cor)
-			local card = Create("Frame", {
-				Size = UDim2.new(1, 0, 1, 0),
-				BackgroundColor3 = CFG.C.S1,
-				BorderSizePixel = 0,
-				LayoutOrder = ordem,
-				Parent = grid,
-			})
-			Corner(card, CFG.R.Card)
-			Stroke(card)
-			Gradient(card, "card")
-			Create("Frame", {
-				Size = UDim2.new(0, 3, 1, -(CFG.R.Card * 2)),
-				Position = UDim2.new(0, 0, 0, CFG.R.Card),
-				BackgroundColor3 = cor,
-				BorderSizePixel = 0,
-				Parent = card,
-			})
-			Create("TextLabel", {
-				Size = UDim2.new(1, -14, 0, 12),
-				Position = UDim2.new(0, 12, 0, 8),
-				Text = titulo,
-				TextColor3 = CFG.C.T3,
-				Font = CFG.F.S,
-				TextSize = MOBILE and 10 or 9,
-				BackgroundTransparency = 1,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				ZIndex = 2,
-				Parent = card,
-			})
-			local valorLabel = Create("TextLabel", {
-				Name = "Valor",
-				Size = UDim2.new(1, -14, 1, -32),
-				Position = UDim2.new(0, 12, 0, 24),
-				Text = valor,
-				TextColor3 = CFG.C.T1,
-				Font = CFG.F.T,
-				TextSize = MOBILE and 18 or 16,
-				BackgroundTransparency = 1,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				TextYAlignment = Enum.TextYAlignment.Center,
-				TextTruncate = Enum.TextTruncate.AtEnd,
-				ZIndex = 2,
-				Parent = card,
-			})
-			return valorLabel
+local function popularTimes()
+	for _, time in ipairs(Teams:GetTeams()) do
+		if not botoesTimes[time] then
+			criarBotaoTime(time)
 		end
-		local jogadoresVal = CriarCard(1, "JOGADORES", tostring(#Players:GetPlayers()), CFG.C.Blu)
-		local pingVal = CriarCard(2, "PING", (ok and ping or 0) .. "ms", CFG.C.Grn)
-		local fpsVal = CriarCard(3, "FPS", "--", CFG.C.Acc)
-		CriarCard(4, "MEMBROS", tostring(#D.Authorized + 1), CFG.C.Yel)
-		local frames, tempoFPS = 0, 0
-		task.spawn(function()
-			while sec and sec.Parent do
-				frames = frames + 1
-				tempoFPS = tempoFPS + task.wait()
-				if tempoFPS >= 1 then
-					pcall(function() fpsVal.Text = tostring(frames) end)
-					frames, tempoFPS = 0, 0
-					local ok2, p2 = pcall(function() return math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
-					if ok2 then pcall(function() pingVal.Text = p2 .. "ms" end) end
-					pcall(function() jogadoresVal.Text = tostring(#Players:GetPlayers()) end)
-				end
-			end
-		end)
-		Y = Y + (MOBILE and 178 or 86)
-		Titulo(sec, Y, "AÇÕES RÁPIDAS"); Y = Y + 34
-		local gradeAcoes = Create("Frame", {
-			Size = UDim2.new(1, 0, 0, MOBILE and 195 or 88),
-			Position = UDim2.new(0, 0, 0, Y),
-			BackgroundTransparency = 1,
-			Parent = sec,
-		})
-		Create("UIGridLayout", {
-			CellSize = MOBILE and UDim2.new(0.48, -3, 0, 42) or UDim2.new(0.23, -4, 0, 38),
-			CellPadding = UDim2.new(0, 4, 0, 4),
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Parent = gradeAcoes,
-		})
-		local acoes = {
-			{"VOO", CMD.Active.Voo and "green" or "gray", function() if CMD.Active.Voo then CMD:PararVoo() else CMD:Voar(50) end end},
-			{"ATRAVESSAR", CMD.Active.NoClip and "green" or "gray", function() CMD:AtravessarParedes() end},
-			{"INVISÍVEL", CMD.Active.Invisivel and "green" or "gray", function() CMD:Invisibilidade() end},
-			{"RENASCER", "gray", function() CMD:Renascer() end},
-			{"ESP TODOS", "gray", function() CMD:ESP_Todos() end},
-			{"CÂMERA", CMD.Active.CameraLivre and "green" or "gray", function() CMD:CameraLivre() end},
-		}
-		for i, acao in ipairs(acoes) do
-			local btn = Create("TextButton", {
-				Size = UDim2.new(1, 0, 1, 0),
-				Text = "",
-				BackgroundColor3 = Color3.fromRGB(40, 40, 50),
-				BorderSizePixel = 0,
-				AutoButtonColor = false,
-				LayoutOrder = i,
-				Parent = gradeAcoes,
-			})
-			Corner(btn, 6)
-			Gradient(btn, acao[2] == "red" and "btnRed" or acao[2] == "green" and "btnGreen" or "btnGray")
-			Stroke(btn, Color3.fromRGB(60, 60, 75), 0.2)
-			Create("TextLabel", {
-				Size = UDim2.new(1, 0, 1, 0),
-				Text = acao[1],
-				TextColor3 = CFG.C.T1,
-				Font = CFG.F.B,
-				TextSize = MOBILE and 13 or 11,
-				BackgroundTransparency = 1,
-				ZIndex = 2,
-				Parent = btn,
-			})
-			btn.MouseEnter:Connect(function()
-				Tween(btn, {BackgroundColor3 = Color3.fromRGB(55, 55, 68)}, 0.15)
-			end)
-			btn.MouseLeave:Connect(function()
-				Tween(btn, {BackgroundColor3 = Color3.fromRGB(40, 40, 50)}, 0.15)
-			end)
-			btn.MouseButton1Down:Connect(function()
-				Tween(btn, {Size = UDim2.new(0.95, 0, 0, MOBILE and 38 or 34)}, 0.08)
-			end)
-			btn.MouseButton1Up:Connect(function()
-				Tween(btn, {Size = UDim2.new(1, 0, 1, 0)}, 0.08)
-			end)
-			btn.MouseButton1Click:Connect(function()
-				acao[3]()
-				PopularSecao("PAINEL")
-			end)
-		end
-		Y = Y + (MOBILE and 205 or 98)
-		sec.CanvasSize = UDim2.new(0, 0, 0, Y + 40)
-	elseif nome == "STAFF" then
-		Titulo(sec, Y, "EQUIPE STAFF"); Y = Y + 36
-		local barraBusca = Entrada(sec, Y, "Buscar membro da staff..."); Y = Y + (MOBILE and 50 or 44)
-		local lista = Create("ScrollingFrame", {
-			Size = UDim2.new(1, 0, 1, -Y - 10),
-			Position = UDim2.new(0, 0, 0, Y + 4),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ScrollBarThickness = MOBILE and 6 or 4,
-			ScrollBarImageColor3 = CFG.C.RedD,
-			CanvasSize = UDim2.new(0, 0, 0, 0),
-			Parent = sec,
-		})
-		Create("UIListLayout", {Padding = UDim.new(0, 6), Parent = lista})
-		local alturaTotal = 0
-		local function AtualizarLista(filtro)
-			for _, filho in pairs(lista:GetChildren()) do
-				if filho:IsA("Frame") then filho:Destroy() end
-			end
-			alturaTotal = 0
-			local alturaCard = MOBILE and 85 or 72
-			for _, jogador in pairs(Players:GetPlayers()) do
-				local temAcesso = (jogador.Name == CFG.Owner) or table.find(D.Authorized, jogador.Name)
-				if not temAcesso then continue end
-				if filtro and filtro ~= "" then
-					if not jogador.Name:lower():find(filtro:lower()) and not jogador.DisplayName:lower():find(filtro:lower()) then
-						continue
-					end
-				end
-				local card = Create("Frame", {
-					Size = UDim2.new(1, 0, 0, alturaCard),
-					BackgroundColor3 = CFG.C.S1,
-					BorderSizePixel = 0,
-					Parent = lista,
-				})
-				Corner(card, 8)
-				Stroke(card)
-				Gradient(card, "card")
-				local avatar = Create("ImageLabel", {
-					Size = UDim2.new(0, MOBILE and 48 or 40, 0, MOBILE and 48 or 40),
-					Position = UDim2.new(0, 10, 0.5, 0),
-					AnchorPoint = Vector2.new(0, 0.5),
-					Image = "rbxthumb://type=AvatarHeadShot&id=" .. jogador.UserId .. "&w=100&h=100",
-					BackgroundColor3 = CFG.C.RedD,
-					BorderSizePixel = 0,
-					ZIndex = 2,
-					Parent = card,
-				})
-				Corner(avatar, 999)
-				local nx = MOBILE and 68 or 58
-				Create("TextLabel", {
-					Size = UDim2.new(1, -200, 0, 20),
-					Position = UDim2.new(0, nx, 0, MOBILE and 12 or 8),
-					Text = jogador.DisplayName,
-					TextColor3 = CFG.C.T1,
-					Font = CFG.F.B,
-					TextSize = MOBILE and 14 or 12,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					ZIndex = 2,
-					Parent = card,
-				})
-				Create("TextLabel", {
-					Size = UDim2.new(1, -200, 0, 16),
-					Position = UDim2.new(0, nx, 0, MOBILE and 32 or 28),
-					Text = "@" .. jogador.Name,
-					TextColor3 = CFG.C.T3,
-					Font = CFG.F.S,
-					TextSize = MOBILE and 11 or 10,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					ZIndex = 2,
-					Parent = card,
-				})
-				local cargo = jogador.Name == CFG.Owner and "Proprietário" or "Administrador"
-				Create("TextLabel", {
-					Size = UDim2.new(1, -200, 0, 16),
-					Position = UDim2.new(0, nx, 0, MOBILE and 50 or 44),
-					Text = cargo,
-					TextColor3 = jogador.Name == CFG.Owner and CFG.C.Yel or CFG.C.Acc,
-					Font = CFG.F.S,
-					TextSize = MOBILE and 10 or 9,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					ZIndex = 2,
-					Parent = card,
-				})
-				local statusDot = Create("Frame", {
-					Size = UDim2.new(0, 8, 0, 8),
-					Position = UDim2.new(1, -20, 0, MOBILE and 14 or 10),
-					BackgroundColor3 = CFG.C.Grn,
-					BorderSizePixel = 0,
-					Parent = card,
-				})
-				Corner(statusDot, 4)
-				Create("TextLabel", {
-					Size = UDim2.new(0, 50, 0, 14),
-					Position = UDim2.new(1, -75, 0, MOBILE and 14 or 10),
-					Text = "Online",
-					TextColor3 = CFG.C.Grn,
-					Font = CFG.F.S,
-					TextSize = 9,
-					BackgroundTransparency = 1,
-					ZIndex = 2,
-					Parent = card,
-				})
-				alturaTotal = alturaTotal + alturaCard + 6
-			end
-			lista.CanvasSize = UDim2.new(0, 0, 0, math.max(alturaTotal, 400))
-		end
-		AtualizarLista()
-		barraBusca:GetPropertyChangedSignal("Text"):Connect(function()
-			AtualizarLista(barraBusca.Text)
-		end)
-		if not sec._PC then
-			sec._PC = Players.PlayerAdded:Connect(function() AtualizarLista(barraBusca.Text) end)
-		end
-		if not sec._PR then
-			sec._PR = Players.PlayerRemoving:Connect(function()
-				task.wait(0.1)
-				AtualizarLista(barraBusca.Text)
-			end)
-		end
-		Y = alturaTotal + 20
-		Titulo(sec, Y, "CHAT DA STAFF"); Y = Y + 30
-		Rotulo(sec, Y,
-			SERVIDOR_OK and "Conectado — as mensagens chegam a todos os admins online." or "Script de servidor não encontrado — mensagens ficam só com você.",
-			16, SERVIDOR_OK and CFG.C.Grn or CFG.C.Ong); Y = Y + 24
-		Rotulo(sec, Y, "Jogador alvo (opcional):"); Y = Y + 20
-		local entradaAlvo = Entrada(sec, Y, "Nome do jogador — vazio envia aviso geral"); Y = Y + (MOBILE and 50 or 44)
-		Rotulo(sec, Y, "MENSAGENS AUTOMÁTICAS:"); Y = Y + 22
-
-		-- Grade de mensagens prontas: evita depender de chat livre, que o
-		-- Roblox pode filtrar/bloquear entre contas de idades diferentes.
-		local colunasPreset = MOBILE and 1 or 2
-		local alturaBotaoPreset = MOBILE and 44 or 38
-		local linhasPreset = math.ceil(#CFG.PresetMsgs / colunasPreset)
-		local gradePresets = Create("Frame", {
-			Size = UDim2.new(1, 0, 0, linhasPreset * (alturaBotaoPreset + 8)),
-			Position = UDim2.new(0, 0, 0, Y),
-			BackgroundTransparency = 1,
-			Parent = sec,
-		})
-		Create("UIGridLayout", {
-			CellSize = colunasPreset == 1 and UDim2.new(1, 0, 0, alturaBotaoPreset) or UDim2.new(0.5, -4, 0, alturaBotaoPreset),
-			CellPadding = UDim2.new(0, 8, 0, 8),
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Parent = gradePresets,
-		})
-		local coresPreset = {"red", "red", "red", "red", "red", "blue", "green", "gray"}
-		for i, msg in ipairs(CFG.PresetMsgs) do
-			local pbtn = Create("TextButton", {
-				Text = "",
-				BackgroundColor3 = Color3.fromRGB(40, 40, 50),
-				BorderSizePixel = 0,
-				AutoButtonColor = false,
-				LayoutOrder = i,
-				Parent = gradePresets,
-			})
-			Corner(pbtn, CFG.R.Botao)
-			local corTipo = coresPreset[i] or "gray"
-			Gradient(pbtn, corTipo == "red" and "btnRed" or corTipo == "blue" and "btnBlue" or corTipo == "green" and "btnGreen" or "btnGray")
-			Stroke(pbtn, Color3.fromRGB(60, 60, 75), 0.2)
-			Create("UIPadding", {PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), Parent = pbtn})
-			Create("TextLabel", {
-				Size = UDim2.new(1, 0, 1, 0),
-				Text = msg,
-				TextColor3 = CFG.C.T1,
-				Font = CFG.F.B,
-				TextSize = MOBILE and 13 or 11,
-				TextWrapped = true,
-				BackgroundTransparency = 1,
-				ZIndex = 2,
-				Parent = pbtn,
-			})
-			pbtn.MouseEnter:Connect(function() Tween(pbtn, {BackgroundColor3 = Color3.fromRGB(55, 55, 68)}, 0.15) end)
-			pbtn.MouseLeave:Connect(function() Tween(pbtn, {BackgroundColor3 = Color3.fromRGB(40, 40, 50)}, 0.15) end)
-			pbtn.MouseButton1Click:Connect(function()
-				CMD:EnviarAlerta(msg, entradaAlvo.Text)
-			end)
-		end
-		Y = Y + linhasPreset * (alturaBotaoPreset + 8) + 14
-
-		Titulo(sec, Y, "MENSAGENS RECEBIDAS"); Y = Y + 32
-		local chatFrame = Create("Frame", {
-			Size = UDim2.new(1, 0, 0, 200),
-			Position = UDim2.new(0, 0, 0, Y),
-			BackgroundColor3 = CFG.C.S1,
-			BorderSizePixel = 0,
-			Parent = sec,
-		})
-		Corner(chatFrame, 8)
-		Stroke(chatFrame)
-		Gradient(chatFrame, "bg")
-		local mensagensFrame = Create("ScrollingFrame", {
-			Size = UDim2.new(1, -10, 1, -10),
-			Position = UDim2.new(0, 5, 0, 5),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ScrollBarThickness = 4,
-			ScrollBarImageColor3 = CFG.C.RedD,
-			CanvasSize = UDim2.new(0, 0, 0, 0),
-			Parent = chatFrame,
-		})
-		Create("UIListLayout", {Padding = UDim.new(0, 4), Parent = mensagensFrame})
-		Create("UIPadding", {PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingTop = UDim.new(0, 4), Parent = mensagensFrame})
-		local function AtualizarStaffChat()
-			for _, filho in pairs(mensagensFrame:GetChildren()) do
-				if filho:IsA("Frame") then filho:Destroy() end
-			end
-			local msgs = ChatSystem:GetStaffMsgs(30)
-			local alturaMsgs = 0
-			for _, msg in ipairs(msgs) do
-				local container = Create("Frame", {
-					Size = UDim2.new(1, 0, 0, 48),
-					BackgroundTransparency = 1,
-					Parent = mensagensFrame,
-				})
-				Create("ImageLabel", {
-					Size = UDim2.new(0, 28, 0, 28),
-					Position = UDim2.new(0, 0, 0, 2),
-					Image = "rbxthumb://type=AvatarHeadShot&id=" .. msg.UserId .. "&w=100&h=100",
-					BackgroundColor3 = CFG.C.RedD,
-					BorderSizePixel = 0,
-					Parent = container,
-				})
-				Create("TextLabel", {
-					Size = UDim2.new(1, -60, 0, 16),
-					Position = UDim2.new(0, 34, 0, 0),
-					Text = msg.Jogador,
-					TextColor3 = CFG.C.Acc,
-					Font = CFG.F.B,
-					TextSize = 11,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					ZIndex = 2,
-					Parent = container,
-				})
-				Create("TextLabel", {
-					Size = UDim2.new(1, -60, 0, 16),
-					Position = UDim2.new(0, 34, 0, 16),
-					Text = msg.Mensagem,
-					TextColor3 = CFG.C.T1,
-					Font = CFG.F.R,
-					TextSize = 12,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					ZIndex = 2,
-					Parent = container,
-				})
-				Create("TextLabel", {
-					Size = UDim2.new(0, 50, 0, 14),
-					Position = UDim2.new(1, -55, 0, 2),
-					Text = msg.Tempo,
-					TextColor3 = CFG.C.T3,
-					Font = CFG.F.S,
-					TextSize = 9,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Right,
-					ZIndex = 2,
-					Parent = container,
-				})
-				alturaMsgs = alturaMsgs + 52
-			end
-			mensagensFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(alturaMsgs, 100))
-			mensagensFrame.CanvasPosition = Vector2.new(0, mensagensFrame.CanvasSize.Y.Offset)
-		end
-		ChatSystem.OnStaff = function() AtualizarStaffChat() end
-		AtualizarStaffChat()
-		Y = Y + 210
-		sec.CanvasSize = UDim2.new(0, 0, 0, Y + 40)
-	elseif nome == "PERFIS" then
-		Titulo(sec, Y, "PERFIS DOS JOGADORES ONLINE"); Y = Y + 30
-		Rotulo(sec, Y,
-			SERVIDOR_OK and "Data de criação confirmada com a API do Roblox." or "Servidor não encontrado — datas abaixo são estimadas por AccountAge.",
-			16, SERVIDOR_OK and CFG.C.Grn or CFG.C.Ong); Y = Y + 24
-		local barraBuscaPerfil = Entrada(sec, Y, "Buscar jogador..."); Y = Y + (MOBILE and 50 or 44)
-		local listaPerfis = Create("ScrollingFrame", {
-			Size = UDim2.new(1, 0, 1, -Y - 10),
-			Position = UDim2.new(0, 0, 0, Y + 4),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ScrollBarThickness = MOBILE and 6 or 4,
-			ScrollBarImageColor3 = CFG.C.RedD,
-			CanvasSize = UDim2.new(0, 0, 0, 0),
-			Parent = sec,
-		})
-		Create("UIListLayout", {Padding = UDim.new(0, 6), Parent = listaPerfis})
-		local function AtualizarPerfis(filtro)
-			for _, filho in pairs(listaPerfis:GetChildren()) do
-				if filho:IsA("Frame") then filho:Destroy() end
-			end
-			local alturaTotalP = 0
-			local alturaCardP = MOBILE and 100 or 84
-			for _, jogador in pairs(Players:GetPlayers()) do
-				if filtro and filtro ~= "" then
-					if not jogador.Name:lower():find(filtro:lower()) and not jogador.DisplayName:lower():find(filtro:lower()) then
-						continue
-					end
-				end
-				local card = Create("Frame", {
-					Size = UDim2.new(1, 0, 0, alturaCardP),
-					BackgroundColor3 = CFG.C.S1,
-					BorderSizePixel = 0,
-					Parent = listaPerfis,
-				})
-				Corner(card, CFG.R.Card)
-				Stroke(card)
-				Gradient(card, "card")
-				local avatar = Create("ImageLabel", {
-					Size = UDim2.new(0, MOBILE and 56 or 48, 0, MOBILE and 56 or 48),
-					Position = UDim2.new(0, 10, 0.5, 0),
-					AnchorPoint = Vector2.new(0, 0.5),
-					Image = "rbxthumb://type=AvatarHeadShot&id=" .. jogador.UserId .. "&w=150&h=150",
-					BackgroundColor3 = CFG.C.RedD,
-					BorderSizePixel = 0,
-					ZIndex = 2,
-					Parent = card,
-				})
-				Corner(avatar, 999)
-				local nx = MOBILE and 76 or 66
-				Create("TextLabel", {
-					Size = UDim2.new(1, -(nx + 10), 0, 18),
-					Position = UDim2.new(0, nx, 0, 10),
-					Text = jogador.DisplayName,
-					TextColor3 = CFG.C.T1,
-					Font = CFG.F.B,
-					TextSize = MOBILE and 14 or 12,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					ZIndex = 2,
-					Parent = card,
-				})
-				Create("TextLabel", {
-					Size = UDim2.new(1, -(nx + 10), 0, 16),
-					Position = UDim2.new(0, nx, 0, 30),
-					Text = "@" .. jogador.Name .. "  |  ID " .. jogador.UserId,
-					TextColor3 = CFG.C.T3,
-					Font = CFG.F.S,
-					TextSize = MOBILE and 11 or 10,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					ZIndex = 2,
-					Parent = card,
-				})
-				local criadoLbl = Create("TextLabel", {
-					Name = "Criado",
-					Size = UDim2.new(1, -(nx + 10), 0, 16),
-					Position = UDim2.new(0, nx, 0, 50),
-					Text = "Verificando data de criação...",
-					TextColor3 = CFG.C.T3,
-					Font = CFG.F.M,
-					TextSize = MOBILE and 11 or 10,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					ZIndex = 2,
-					Parent = card,
-				})
-				task.spawn(function()
-					local info = CMD:ObterInfoConta(jogador)
-					pcall(function()
-						if criadoLbl and criadoLbl.Parent then
-							criadoLbl.Text = (info.Confirmado and "Conta criada em " or "Criação estimada: ") .. info.Texto
-							criadoLbl.TextColor3 = info.Confirmado and CFG.C.Grn or CFG.C.T3
-						end
-					end)
-				end)
-				alturaTotalP = alturaTotalP + alturaCardP + 6
-			end
-			listaPerfis.CanvasSize = UDim2.new(0, 0, 0, math.max(alturaTotalP, 400))
-		end
-		AtualizarPerfis()
-		barraBuscaPerfil:GetPropertyChangedSignal("Text"):Connect(function()
-			AtualizarPerfis(barraBuscaPerfil.Text)
-		end)
-		if not sec._PC then
-			sec._PC = Players.PlayerAdded:Connect(function() AtualizarPerfis(barraBuscaPerfil.Text) end)
-		end
-		if not sec._PR then
-			sec._PR = Players.PlayerRemoving:Connect(function()
-				task.wait(0.1)
-				AtualizarPerfis(barraBuscaPerfil.Text)
-			end)
-		end
-	elseif nome == "CHAT" then
-		Titulo(sec, Y, "CHAT LOGS"); Y = Y + 36
-		local filtro = Entrada(sec, Y, "Filtrar mensagens..."); Y = Y + (MOBILE and 50 or 44)
-		local logsFrame = Create("ScrollingFrame", {
-			Size = UDim2.new(1, 0, 1, -Y - 55),
-			Position = UDim2.new(0, 0, 0, Y + 4),
-			BackgroundColor3 = CFG.C.S1,
-			BorderSizePixel = 0,
-			ScrollBarThickness = MOBILE and 6 or 4,
-			ScrollBarImageColor3 = CFG.C.RedD,
-			CanvasSize = UDim2.new(0, 0, 0, 0),
-			Parent = sec,
-		})
-		Corner(logsFrame, 6)
-		Stroke(logsFrame)
-		Gradient(logsFrame, "bg")
-		Create("UIPadding", {
-			PaddingLeft = UDim.new(0, 8),
-			PaddingRight = UDim.new(0, 8),
-			PaddingTop = UDim.new(0, 6),
-			Parent = logsFrame,
-		})
-		Create("UIListLayout", {
-			Padding = UDim.new(0, 2),
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Parent = logsFrame,
-		})
-		local function AtualizarLogs(flt)
-			for _, filho in pairs(logsFrame:GetChildren()) do
-				if filho:IsA("TextLabel") then filho:Destroy() end
-			end
-			local logs = ChatSystem:GetLogs(flt, 150)
-			local alturaTotal = 0
-			for _, log in ipairs(logs) do
-				local cor = CFG.C.Wht
-				if log.Categoria == "SISTEMA" then cor = CFG.C.Yel
-				elseif log.Categoria == "ERRO" then cor = CFG.C.Red end
-				Create("TextLabel", {
-					Size = UDim2.new(1, 0, 0, 20),
-					Text = "[" .. log.Tempo .. "] " .. log.Jogador .. ": " .. log.Mensagem,
-					TextColor3 = cor,
-					Font = CFG.F.M,
-					TextSize = MOBILE and 11 or 10,
-					BackgroundTransparency = 1,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					TextTruncate = Enum.TextTruncate.AtEnd,
-					ZIndex = 2,
-					LayoutOrder = alturaTotal,
-					Parent = logsFrame,
-				})
-				alturaTotal = alturaTotal + 22
-			end
-			logsFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(alturaTotal + 10, 300))
-			task.defer(function()
-				logsFrame.CanvasPosition = Vector2.new(0, logsFrame.CanvasSize.Y.Offset)
-			end)
-		end
-		ChatSystem.OnLog = function() AtualizarLogs(filtro.Text) end
-		AtualizarLogs()
-		filtro:GetPropertyChangedSignal("Text"):Connect(function()
-			AtualizarLogs(filtro.Text)
-		end)
-		Botao(sec, Y + (MOBILE and 430 or 380), "LIMPAR LOGS", "red", function()
-			ChatSystem:ClearLogs()
-			AtualizarLogs()
-		end, MOBILE and 42 or 36)
-	elseif nome == "MOVIMENTO" then
-		Titulo(sec, Y, "MOVIMENTAÇÃO"); Y = Y + 36
-		Rotulo(sec, Y, "Velocidade de Voo (1-400):"); Y = Y + 22
-		local entradaVoo = Entrada(sec, Y, "50", "50"); Y = Y + (MOBILE and 50 or 44)
-		Botao(sec, Y, "INICIAR VOO", "red", function() CMD:Voar(tonumber(entradaVoo.Text) or 50) end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "PARAR VOO", "gray", function() CMD:PararVoo() end); Y = Y + (MOBILE and 52 or 46)
-		Rotulo(sec, Y, "Velocidade de Caminhada (1-400):"); Y = Y + 22
-		local entradaVel = Entrada(sec, Y, "16", "16"); Y = Y + (MOBILE and 50 or 44)
-		Botao(sec, Y, "APLICAR", "red", function() CMD:Velocidade(tonumber(entradaVel.Text) or 16) end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "RESETAR (16)", "gray", function() CMD:ResetarVelocidade() end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "ATRAVESSAR PAREDES: " .. (CMD.Active.NoClip and "ATIVADO" or "DESATIVADO"),
-			CMD.Active.NoClip and "green" or "gray",
-			function() CMD:AtravessarParedes(); PopularSecao("MOVIMENTO") end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "INVISIBILIDADE: " .. (CMD.Active.Invisivel and "ATIVADA" or "DESATIVADA"),
-			CMD.Active.Invisivel and "green" or "gray",
-			function() CMD:Invisibilidade(); PopularSecao("MOVIMENTO") end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "CÂMERA LIVRE: " .. (CMD.Active.CameraLivre and "ATIVADA" or "DESATIVADA"),
-			CMD.Active.CameraLivre and "green" or "gray",
-			function() CMD:CameraLivre(); PopularSecao("MOVIMENTO") end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "RENASCER", "gray", function() CMD:Renascer() end); Y = Y + (MOBILE and 52 or 46)
-		sec.CanvasSize = UDim2.new(0, 0, 0, Y + 40)
-	elseif nome == "ESP" then
-		Titulo(sec, Y, "SISTEMA ESP"); Y = Y + 36
-		Rotulo(sec, Y, "Nome do Jogador:"); Y = Y + 22
-		local entradaESP = Entrada(sec, Y, "Nome do jogador"); Y = Y + (MOBILE and 50 or 44)
-		Botao(sec, Y, "ATIVAR ESP INDIVIDUAL", "red", function() CMD:ESP_Adicionar(entradaESP.Text) end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "ATIVAR ESP (TODOS)", "blue", function() CMD:ESP_Todos() end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "REMOVER TODOS", "gray", function() CMD:ESP_RemoverTodos() end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "MARCADOR (PIN)", "gray", function() CMD:Marcar(entradaESP.Text) end); Y = Y + (MOBILE and 52 or 46)
-		Rotulo(sec, Y, "CONFIGURAÇÕES:"); Y = Y + 22
-		Botao(sec, Y, "MOSTRAR NOMES: " .. (D.ESP_Name and "SIM" or "NÃO"),
-			D.ESP_Name and "green" or "gray",
-			function() CMD:ESP_AlternarNomes(); PopularSecao("ESP") end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "MOSTRAR DISTÂNCIA: " .. (D.ESP_Dist and "SIM" or "NÃO"),
-			D.ESP_Dist and "green" or "gray",
-			function() D.ESP_Dist = not D.ESP_Dist; PopularSecao("ESP") end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "MOSTRAR VIDA: " .. (D.ESP_HP and "SIM" or "NÃO"),
-			D.ESP_HP and "green" or "gray",
-			function() D.ESP_HP = not D.ESP_HP; PopularSecao("ESP") end); Y = Y + (MOBILE and 52 or 46)
-		sec.CanvasSize = UDim2.new(0, 0, 0, Y + 40)
-	elseif nome == "TELEPORTE" then
-		Titulo(sec, Y, "TELEPORTE"); Y = Y + 36
-		Rotulo(sec, Y, "Alvo:"); Y = Y + 22
-		local entradaTP = Entrada(sec, Y, "Nome do jogador"); Y = Y + (MOBILE and 50 or 44)
-		Botao(sec, Y, "TELEPORTAR", "red", function() CMD:Teleporte(entradaTP.Text) end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "SEGUIR", "blue", function() CMD:Seguir(entradaTP.Text) end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "PARAR DE SEGUIR", "gray", function() CMD:PararSeguir() end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "RENASCER", "blue", function() CMD:Renascer() end); Y = Y + (MOBILE and 52 or 46)
-		sec.CanvasSize = UDim2.new(0, 0, 0, Y + 40)
-	elseif nome == "UTILITARIOS" then
-		Titulo(sec, Y, "UTILITÁRIOS"); Y = Y + 36
-		Rotulo(sec, Y, "Nome do Jogador:"); Y = Y + 22
-		local entradaUtil = Entrada(sec, Y, "Nome do jogador"); Y = Y + (MOBILE and 50 or 44)
-		Botao(sec, Y, "VER INVENTÁRIO", "red", function() CMD:VerInventario(entradaUtil.Text) end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "VER PERFIL", "blue", function() CMD:VerPerfil(entradaUtil.Text) end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "ANTI-CHEAT: " .. (CMD.Active.AntiCheat and "ATIVO" or "INATIVO"),
-			CMD.Active.AntiCheat and "green" or "gray",
-			function() CMD:AntiCheat(); PopularSecao("UTILITARIOS") end); Y = Y + (MOBILE and 52 or 46)
-		sec.CanvasSize = UDim2.new(0, 0, 0, Y + 40)
-	elseif nome == "MODERACAO" then
-		Titulo(sec, Y, "MODERAÇÃO"); Y = Y + 36
-		Rotulo(sec, Y, "Nome do Usuário:"); Y = Y + 22
-		local entradaMod = Entrada(sec, Y, "Nome do usuário"); Y = Y + (MOBILE and 50 or 44)
-		Botao(sec, Y, "BANIR USUÁRIO", "red", function() CMD:Banir(entradaMod.Text); PopularSecao("MODERACAO") end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "DESBANIR USUÁRIO", "green", function() CMD:Desbanir(entradaMod.Text); PopularSecao("MODERACAO") end); Y = Y + (MOBILE and 52 or 46)
-		Titulo(sec, Y, "USUÁRIOS BANIDOS"); Y = Y + 36
-		local listaBan = Create("ScrollingFrame", {
-			Size = UDim2.new(1, 0, 0, 140),
-			Position = UDim2.new(0, 0, 0, Y),
-			BackgroundColor3 = CFG.C.S1,
-			BorderSizePixel = 0,
-			ScrollBarThickness = 4,
-			ScrollBarImageColor3 = CFG.C.RedD,
-			CanvasSize = UDim2.new(0, 0, 0, 0),
-			Parent = sec,
-		})
-		Corner(listaBan, 6)
-		Stroke(listaBan)
-		Gradient(listaBan, "bg")
-		Create("UIListLayout", {Padding = UDim.new(0, 3), Parent = listaBan})
-		Create("UIPadding", {PaddingLeft = UDim.new(0, 8), PaddingTop = UDim.new(0, 6), Parent = listaBan})
-		local alturaBan = 0
-		for _, nome in pairs(D.Banned) do
-			local linha = Create("Frame", {
-				Size = UDim2.new(1, -10, 0, 28),
-				BackgroundColor3 = CFG.C.S2,
-				BorderSizePixel = 0,
-				Parent = listaBan,
-			})
-			Corner(linha, 4)
-			Gradient(linha, "card")
-			Create("TextLabel", {
-				Size = UDim2.new(1, -50, 1, 0),
-				Position = UDim2.new(0, 8, 0, 0),
-				Text = nome,
-				TextColor3 = CFG.C.Red,
-				Font = CFG.F.M,
-				TextSize = 12,
-				BackgroundTransparency = 1,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				ZIndex = 2,
-				Parent = linha,
-			})
-			local desbanirBtn = Create("TextButton", {
-				Size = UDim2.new(0, 42, 0, 20),
-				Position = UDim2.new(1, -46, 0.5, 0),
-				AnchorPoint = Vector2.new(0, 0.5),
-				Text = "",
-				BackgroundColor3 = Color3.fromRGB(40, 40, 50),
-				BorderSizePixel = 0,
-				AutoButtonColor = false,
-				Parent = linha,
-			})
-			Corner(desbanirBtn, 3)
-			Gradient(desbanirBtn, "btnGreen")
-			Create("TextLabel", {
-				Size = UDim2.new(1, 0, 1, 0),
-				Text = "DESBANIR",
-				TextColor3 = CFG.C.T1,
-				Font = CFG.F.B,
-				TextSize = 9,
-				BackgroundTransparency = 1,
-				ZIndex = 2,
-				Parent = desbanirBtn,
-			})
-			desbanirBtn.MouseButton1Click:Connect(function()
-				CMD:Desbanir(nome)
-				PopularSecao("MODERACAO")
-			end)
-			alturaBan = alturaBan + 31
-		end
-		listaBan.CanvasSize = UDim2.new(0, 0, 0, math.max(alturaBan, 40))
-		Y = Y + 160
-		sec.CanvasSize = UDim2.new(0, 0, 0, Y + 40)
-	elseif nome == "CONFIG" then
-		Titulo(sec, Y, "CONFIGURAÇÕES"); Y = Y + 36
-		Rotulo(sec, Y, "Painel: " .. CFG.Name); Y = Y + 22
-		Rotulo(sec, Y, "Proprietário: " .. CFG.Owner); Y = Y + 22
-		Rotulo(sec, Y, "Administradores Online: " .. #D.ActiveAdmins); Y = Y + 28
-		Botao(sec, Y, "LIMPAR TODOS OS LOGS", "gray", function() ChatSystem:ClearLogs() end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "REMOVER TODOS OS ESP", "gray", function() CMD:ESP_RemoverTodos() end); Y = Y + (MOBILE and 52 or 46)
-		Botao(sec, Y, "RESETAR MOVIMENTAÇÃO", "gray", function()
-			CMD:PararVoo(); CMD:ResetarVelocidade()
-			if CMD.Active.NoClip then CMD:AtravessarParedes() end
-			if CMD.Active.Invisivel then CMD:Invisibilidade() end
-		end); Y = Y + (MOBILE and 52 or 46)
-		sec.CanvasSize = UDim2.new(0, 0, 0, Y + 40)
 	end
 end
 
--- ===================================================================
--- CONSTRUIR INTERFACE
--- ===================================================================
-local function ConstruirInterface()
-	if _G.DA10_UI then _G.DA10_UI:Destroy() end
-	MainGui = Create("ScreenGui", {
-		Name = "DA10",
-		Parent = SAFE,
-		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-		ResetOnSpawn = false,
-	})
-	_G.DA10_UI = MainGui
+Teams.ChildAdded:Connect(function(filho)
+	if filho:IsA("Team") then
+		task.defer(criarBotaoTime, filho)
+	end
+end)
 
-	-- ===================================================================
-	-- TELA DE LOGIN
-	-- ===================================================================
-	LoginFrame = Create("CanvasGroup", {
-		Name = "Login",
-		Size = UDim2.new(MOBILE and 0.9 or 0, MOBILE and 0 or 360, 0, MOBILE and 480 or 460),
-		Position = UDim2.new(0.5, 0, 0.5, 0),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		BackgroundColor3 = CFG.C.S1,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		Active = true,
-		Draggable = not MOBILE,
-		Parent = MainGui,
-	})
-	Corner(LoginFrame, CFG.R.Login)
-	Stroke(LoginFrame, CFG.C.Red, 0.3, 2)
-	Gradient(LoginFrame, "bg")
+Teams.ChildRemoved:Connect(function(filho)
+	local dados = botoesTimes[filho]
+	if dados then
+		dados.botao:Destroy()
+		botoesTimes[filho] = nil
+	end
+	equipesAmigas[filho] = nil
+end)
 
-	-- BACKGROUND DA TELA DE LOGIN
-	Create("ImageLabel", {
-		Name = "LoginBackground",
-		Size = UDim2.new(1, 0, 1, 0),
-		Position = UDim2.new(0, 0, 0, 0),
-		Image = CFG.Background,
-		BackgroundTransparency = 1,
-		ScaleType = Enum.ScaleType.Crop,
-		ImageTransparency = 0.9,
-		ZIndex = 1,
-		Parent = LoginFrame,
-	})
+popularTimes()
 
-	Create("Frame", {
-		Size = UDim2.new(1, 0, 0, 3),
-		BackgroundColor3 = CFG.C.Red,
-		BorderSizePixel = 0,
-		ZIndex = 2,
-		Parent = LoginFrame,
-	})
+-- ===== ESP (normal e inteligente) =====
 
-	-- Logo 3x maior
-	local logoTamanho = MOBILE and 180 or 240
-	Create("ImageLabel", {
-		Size = UDim2.new(0, logoTamanho, 0, logoTamanho),
-		Position = UDim2.new(0.5, 0, 0, 20),
-		AnchorPoint = Vector2.new(0.5, 0),
-		Image = CFG.Logo,
-		BackgroundTransparency = 1,
-		ZIndex = 2,
-		Parent = LoginFrame,
-	})
+local function estaNaVisaoDireta(posicaoAlvo, personagemAlvo)
+	local camera = workspace.CurrentCamera
+	local origem = camera.CFrame.Position
+	local direcao = posicaoAlvo - origem
 
-	Create("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 30),
-		Position = UDim2.new(0, 0, 0, 20 + logoTamanho + 8),
-		Text = CFG.Name,
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.T,
-		TextSize = MOBILE and 22 or 20,
-		BackgroundTransparency = 1,
-		ZIndex = 2,
-		Parent = LoginFrame,
-	})
+	raycastParams.FilterDescendantsInstances = { jogadorLocal.Character, personagemAlvo }
 
-	local keyBg = Create("Frame", {
-		Size = UDim2.new(1, -50, 0, MOBILE and 48 or 42),
-		Position = UDim2.new(0, 25, 0, 20 + logoTamanho + 56),
-		BackgroundColor3 = CFG.C.S2,
-		BorderSizePixel = 0,
-		ZIndex = 2,
-		Parent = LoginFrame,
-	})
-	Corner(keyBg, 6)
-	Stroke(keyBg)
-	Gradient(keyBg, "card")
+	local resultado = workspace:Raycast(origem, direcao, raycastParams)
+	return resultado == nil
+end
 
-	local keyBox = Create("TextBox", {
-		Size = UDim2.new(1, -16, 1, 0),
-		Position = UDim2.new(0, 8, 0, 0),
-		PlaceholderText = "CHAVE DE ACESSO",
-		PlaceholderColor3 = CFG.C.T3,
-		Text = "",
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.R,
-		TextSize = MOBILE and 15 or 13,
-		BackgroundTransparency = 1,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 2,
-		Parent = keyBg,
-	})
+local function iniciarEsp()
+	reconstruirFilaVisibilidade()
 
-	local entrarBtn = Create("TextButton", {
-		Size = UDim2.new(1, -50, 0, MOBILE and 48 or 42),
-		Position = UDim2.new(0, 25, 0, 20 + logoTamanho + 108),
-		Text = "",
-		BackgroundColor3 = Color3.fromRGB(40, 40, 50),
-		BorderSizePixel = 0,
-		AutoButtonColor = false,
-		ZIndex = 2,
-		Parent = LoginFrame,
-	})
-	Corner(entrarBtn, 6)
-	Gradient(entrarBtn, "btnRed")
-	Stroke(entrarBtn, Color3.fromRGB(60, 60, 75), 0.2)
-	Create("TextLabel", {
-		Size = UDim2.new(1, 0, 1, 0),
-		Text = "AUTENTICAR",
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.B,
-		TextSize = MOBILE and 15 or 13,
-		BackgroundTransparency = 1,
-		ZIndex = 2,
-		Parent = entrarBtn,
-	})
+	for _, jogador in ipairs(Players:GetPlayers()) do
+		if jogador ~= jogadorLocal then
+			criarEspNoJogador(jogador)
+			espConexoes["personagem_" .. jogador.UserId] = jogador.CharacterAdded:Connect(function()
+				task.wait(0.5)
+				criarEspNoJogador(jogador)
+				reconstruirFilaVisibilidade()
+			end)
+		end
+	end
 
-	local erroLabel = Create("TextLabel", {
-		Size = UDim2.new(1, -50, 0, 20),
-		Position = UDim2.new(0, 25, 0, 20 + logoTamanho + 158),
-		Text = "",
-		TextColor3 = CFG.C.Red,
-		Font = CFG.F.B,
-		TextSize = MOBILE and 12 or 11,
-		BackgroundTransparency = 1,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		ZIndex = 2,
-		Parent = LoginFrame,
-	})
+	reconstruirFilaVisibilidade()
 
-	local loadingBar = Create("Frame", {
-		Size = UDim2.new(1, -50, 0, 3),
-		Position = UDim2.new(0, 25, 0, 20 + logoTamanho + 188),
-		BackgroundColor3 = CFG.C.S2,
-		BorderSizePixel = 0,
-		Visible = false,
-		ZIndex = 2,
-		Parent = LoginFrame,
-	})
-	Corner(loadingBar, 2)
-	local loadingFill = Create("Frame", {
-		Size = UDim2.new(0, 0, 1, 0),
-		BackgroundColor3 = CFG.C.Red,
-		BorderSizePixel = 0,
-		ZIndex = 2,
-		Parent = loadingBar,
-	})
-	Corner(loadingFill, 2)
-	Gradient(loadingFill, "btnRed")
+	espConexoes.jogadorEntrou = Players.PlayerAdded:Connect(function(jogador)
+		espConexoes["personagem_" .. jogador.UserId] = jogador.CharacterAdded:Connect(function()
+			task.wait(0.5)
+			criarEspNoJogador(jogador)
+			reconstruirFilaVisibilidade()
+		end)
+	end)
 
-	local function Login()
-		local chave = keyBox.Text
-		local isBanned = table.find(D.Banned, LP.Name)
-		if isBanned then
-			erroLabel.Text = "VOCÊ ESTÁ BANIDO!"
+	espConexoes.jogadorSaiu = Players.PlayerRemoving:Connect(function(jogador)
+		removerEspDoJogador(jogador)
+		reconstruirFilaVisibilidade()
+	end)
+
+	local acumuladorLeve = 0
+	local acumuladorReconciliacao = 0
+
+	espAtualizacaoConexao = RunService.Heartbeat:Connect(function(delta)
+		local raizLocal = jogadorLocal.Character and jogadorLocal.Character:FindFirstChild("HumanoidRootPart")
+		if not raizLocal then
 			return
 		end
-		if LP.Name == CFG.Owner or chave == CFG.Key then
-			loadingBar.Visible = true
-			erroLabel.Text = ""
-			local steps = {0.2, 0.5, 0.8, 1}
-			for _, s in ipairs(steps) do
-				Tween(loadingFill, {Size = UDim2.new(s, 0, 1, 0)}, 0.25)
-				task.wait(0.3)
-			end
-			LoginFrame.Visible = false
-			MainPanel.Visible = true
-			Auth:GrantAccess()
-			ChatSystem:AddLog("SISTEMA", "SISTEMA", LP.Name .. " autenticou-se no painel")
-			Notify("BEM-VINDO", LP.Name, 3, "s")
-		else
-			erroLabel.Text = "CHAVE INCORRETA! ACESSO NEGADO."
+
+		acumuladorReconciliacao += delta
+		if acumuladorReconciliacao >= INTERVALO_RECONCILIACAO then
+			acumuladorReconciliacao = 0
+			sincronizarEsp()
+			reconstruirFilaVisibilidade()
 		end
-	end
 
-	entrarBtn.MouseButton1Click:Connect(Login)
-	keyBox.FocusLost:Connect(function(ep) if ep then Login() end end)
-
-	entrarBtn.MouseEnter:Connect(function()
-		Tween(entrarBtn, {BackgroundColor3 = Color3.fromRGB(55, 55, 68)}, 0.15)
-	end)
-	entrarBtn.MouseLeave:Connect(function()
-		Tween(entrarBtn, {BackgroundColor3 = Color3.fromRGB(40, 40, 50)}, 0.15)
-	end)
-
-	-- ===================================================================
-	-- PAINEL PRINCIPAL
-	-- ===================================================================
-	MainPanel = Create("CanvasGroup", {
-		Name = "MainPanel",
-		Size = MOBILE and UDim2.new(0.95, 0, 0.9, 0) or UDim2.new(0, 1000, 0, 600),
-		Position = UDim2.new(0.5, 0, 0.5, 0),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		BackgroundColor3 = CFG.C.BG,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Visible = false,
-		ClipsDescendants = true,
-		Active = true,
-		Draggable = not MOBILE,
-		Parent = MainGui,
-	})
-	Corner(MainPanel, CFG.R.Painel)
-	Stroke(MainPanel, CFG.C.S3, 0.3)
-
-	Create("ImageLabel", {
-		Name = "MainBackground",
-		Size = UDim2.new(1, 0, 1, 0),
-		Position = UDim2.new(0, 0, 0, 0),
-		Image = CFG.Background,
-		BackgroundTransparency = 1,
-		ScaleType = Enum.ScaleType.Crop,
-		ImageTransparency = 0,
-		ZIndex = 1,
-		Parent = MainPanel,
-	})
-
-	OriginalSize = MainPanel.Size
-	OriginalPosition = MainPanel.Position
-
-	Sidebar = Create("Frame", {
-		Name = "Sidebar",
-		Size = UDim2.new(0, MOBILE and 0 or 200, 1, 0),
-		BackgroundColor3 = CFG.C.S1,
-		BackgroundTransparency = 0.15,
-		BorderSizePixel = 0,
-		Visible = not MOBILE,
-		ClipsDescendants = true,
-		ZIndex = 10,
-		Parent = MainPanel,
-	})
-	Gradient(Sidebar, "sidebar")
-
-	local navContainer = Create("Frame", {
-		Size = UDim2.new(1, -16, 1, -16),
-		Position = UDim2.new(0, 8, 0, 8),
-		BackgroundTransparency = 1,
-		ZIndex = 2,
-		Parent = Sidebar,
-	})
-	Create("UIListLayout", {
-		Padding = UDim.new(0, 2),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = navContainer,
-	})
-
-	for _, aba in ipairs(ABAS) do
-		local nome, rotulo = aba[1], aba[2]
-		local btn = Create("TextButton", {
-			Size = UDim2.new(1, 0, 0, MOBILE and 44 or 38),
-			Text = "",
-			BackgroundColor3 = nome == "PAINEL" and CFG.C.RedD or Color3.fromRGB(25, 25, 32),
-			BorderSizePixel = 0,
-			AutoButtonColor = false,
-			LayoutOrder = #ABAS,
-			ZIndex = 2,
-			Parent = navContainer,
-		})
-		Corner(btn, CFG.R.Botao)
-		Gradient(btn, nome == "PAINEL" and "navActive" or "navInactive")
-		Create("Frame", {
-			Name = "Indicador",
-			Size = UDim2.new(0, 3, 0.6, 0),
-			Position = UDim2.new(0, 0, 0.2, 0),
-			BackgroundColor3 = CFG.C.Acc,
-			BorderSizePixel = 0,
-			Visible = nome == "PAINEL",
-			ZIndex = 2,
-			Parent = btn,
-		})
-		Corner(btn:FindFirstChild("Indicador"), 2)
-		Create("TextLabel", {
-			Name = "Rotulo",
-			Size = UDim2.new(1, -16, 1, 0),
-			Position = UDim2.new(0, 12, 0, 0),
-			Text = rotulo,
-			TextColor3 = nome == "PAINEL" and CFG.C.T1 or CFG.C.T2,
-			Font = CFG.F.B,
-			TextSize = MOBILE and 13 or 11,
-			BackgroundTransparency = 1,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			ZIndex = 2,
-			Parent = btn,
-		})
-		NavButtons[nome] = btn
-		btn.MouseEnter:Connect(function()
-			if nome ~= CurrentTab then
-				Tween(btn, {BackgroundColor3 = Color3.fromRGB(35, 35, 45)}, 0.15)
+		acumuladorLeve += delta
+		if acumuladorLeve >= INTERVALO_ATUALIZACAO_LEVE then
+			acumuladorLeve = 0
+			for jogador, objetos in pairs(espObjetos) do
+				local raizAlvo = jogador.Character and jogador.Character:FindFirstChild("HumanoidRootPart")
+				if raizAlvo and objetos.distanciaLabel then
+					local distancia = (raizAlvo.Position - raizLocal.Position).Magnitude
+					objetos.distanciaLabel.Text = math.floor(distancia) .. "m"
+				end
 			end
-		end)
-		btn.MouseLeave:Connect(function()
-			if nome ~= CurrentTab then
-				Tween(btn, {BackgroundColor3 = Color3.fromRGB(25, 25, 32)}, 0.15)
+		end
+
+		if estado.modoEsp == "inteligente" and #filaVisibilidade > 0 then
+			for _ = 1, math.min(JOGADORES_POR_FRAME, #filaVisibilidade) do
+				if indiceFilaVisibilidade > #filaVisibilidade then
+					indiceFilaVisibilidade = 1
+				end
+
+				local jogador = filaVisibilidade[indiceFilaVisibilidade]
+				local objetos = espObjetos[jogador]
+				if objetos and objetos.partesHighlight then
+					for parte, highlight in pairs(objetos.partesHighlight) do
+						local visivel = estaNaVisaoDireta(parte.Position, objetos.personagem)
+						local cor = visivel and CORES.espVisivel or CORES.espOculto
+						highlight.FillColor = cor
+						highlight.OutlineColor = cor
+					end
+				end
+
+				indiceFilaVisibilidade += 1
 			end
-		end)
-		btn.MouseButton1Click:Connect(function() MudarAba(nome) end)
-	end
-
-	-- ===================================================================
-	-- TOPBAR COM CONTROLES DE JANELA
-	-- ===================================================================
-	local topbar = Create("Frame", {
-		Name = "Topbar",
-		Size = UDim2.new(1, MOBILE and 0 or -200, 0, 48),
-		Position = UDim2.new(0, MOBILE and 0 or 200, 0, 0),
-		BackgroundColor3 = CFG.C.S1,
-		BackgroundTransparency = 0.15,
-		BorderSizePixel = 0,
-		ZIndex = 10,
-		Parent = MainPanel,
-	})
-	Gradient(topbar, "sidebar")
-	Create("Frame", {
-		Size = UDim2.new(1, 0, 0, 2),
-		Position = UDim2.new(0, 0, 1, -2),
-		BackgroundColor3 = CFG.C.Red,
-		BorderSizePixel = 0,
-		ZIndex = 2,
-		Parent = topbar,
-	})
-	Create("ImageLabel", {
-		Size = UDim2.new(0, 28, 0, 28),
-		Position = UDim2.new(0, 12, 0.5, 0),
-		AnchorPoint = Vector2.new(0, 0.5),
-		Image = CFG.Logo,
-		BackgroundTransparency = 1,
-		ZIndex = 2,
-		Parent = topbar,
-	})
-	Create("TextLabel", {
-		Size = UDim2.new(0, 250, 1, 0),
-		Position = UDim2.new(0, 46, 0, 0),
-		Text = CFG.Name,
-		TextColor3 = CFG.C.T1,
-		Font = CFG.F.T,
-		TextSize = MOBILE and 14 or 13,
-		BackgroundTransparency = 1,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 2,
-		Parent = topbar,
-	})
-
-	local controles = Create("Frame", {
-		Size = UDim2.new(0, 70, 0, 30),
-		Position = UDim2.new(1, -78, 0.5, 0),
-		AnchorPoint = Vector2.new(0, 0.5),
-		BackgroundTransparency = 1,
-		ZIndex = 2,
-		Parent = topbar,
-	})
-	Create("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		HorizontalAlignment = Enum.HorizontalAlignment.Right,
-		Padding = UDim.new(0, 6),
-		Parent = controles,
-	})
-
-	BotaoControle(controles, "–", function()
-		MinimizarPainel()
+		end
 	end)
-	BotaoControle(controles, "X", function()
-		FecharPainel()
-	end)
-
-	if MOBILE then
-		local menuBtn = Create("TextButton", {
-			Size = UDim2.new(0, 34, 0, 34),
-			Position = UDim2.new(1, -120, 0.5, 0),
-			AnchorPoint = Vector2.new(0, 0.5),
-			Text = "",
-			BackgroundColor3 = Color3.fromRGB(30, 30, 38),
-			BorderSizePixel = 0,
-			AutoButtonColor = false,
-			ZIndex = 2,
-			Parent = topbar,
-		})
-		Corner(menuBtn, 6)
-		Gradient(menuBtn, "btnGray")
-		Create("TextLabel", {
-			Size = UDim2.new(1, 0, 1, 0),
-			Text = "=",
-			TextColor3 = CFG.C.T1,
-			Font = CFG.F.B,
-			TextSize = 18,
-			BackgroundTransparency = 1,
-			ZIndex = 2,
-			Parent = menuBtn,
-		})
-		local sideVisivel = false
-		menuBtn.MouseButton1Click:Connect(function()
-			sideVisivel = not sideVisivel
-			if sideVisivel then
-				Sidebar.Visible = true
-				Tween(Sidebar, {Size = UDim2.new(0, 200, 1, 0)}, 0.2)
-			else
-				Tween(Sidebar, {Size = UDim2.new(0, 0, 1, 0)}, 0.2)
-				task.delay(0.2, function() if not sideVisivel then Sidebar.Visible = false end end)
-			end
-		end)
-		Sidebar.ZIndex = 10
-	end
-
-	ContentArea = Create("Frame", {
-		Name = "Content",
-		Size = UDim2.new(1, MOBILE and 0 or -200, 1, -48),
-		Position = UDim2.new(0, MOBILE and 0 or 200, 0, 48),
-		BackgroundColor3 = CFG.C.BG,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ZIndex = 10,
-		Parent = MainPanel,
-	})
-
-	for _, aba in ipairs(ABAS) do
-		local nome = aba[1]
-		local sec = Create("ScrollingFrame", {
-			Name = nome,
-			Size = UDim2.new(1, 0, 1, 0),
-			BackgroundColor3 = CFG.C.BG,
-			BackgroundTransparency = 0.85,
-			BorderSizePixel = 0,
-			ScrollBarThickness = MOBILE and 6 or 4,
-			ScrollBarImageColor3 = CFG.C.RedD,
-			Visible = nome == "PAINEL",
-			CanvasSize = UDim2.new(0, 0, 0, 800),
-			ZIndex = 2,
-			Parent = ContentArea,
-		})
-		Sections[nome] = sec
-	end
-
-	PopularSecao("PAINEL")
 end
 
--- ===================================================================
--- MINIMIZAR E FECHAR
--- ===================================================================
-function MinimizarPainel()
-	if D.Minimized then
-		D.Minimized = false
-		if MinimizedBar then MinimizedBar:Destroy(); MinimizedBar = nil end
-		MainPanel.Size = OriginalSize
-		MainPanel.Position = OriginalPosition
-		Tween(MainPanel, {Size = OriginalSize, Position = OriginalPosition}, 0.3)
+local function pararEsp()
+	for jogador in pairs(espObjetos) do
+		removerEspDoJogador(jogador)
+	end
+
+	for _, conexao in pairs(espConexoes) do
+		conexao:Disconnect()
+	end
+	espConexoes = {}
+
+	filaVisibilidade = {}
+	indiceFilaVisibilidade = 1
+
+	if espAtualizacaoConexao then
+		espAtualizacaoConexao:Disconnect()
+		espAtualizacaoConexao = nil
+	end
+end
+
+local function atualizarBotoesEsp()
+	local normalAtivo = estado.modoEsp == "normal"
+	local inteligenteAtivo = estado.modoEsp == "inteligente"
+
+	TweenService:Create(botaoEspNormal, TWEEN_RAPIDO, { BackgroundColor3 = normalAtivo and CORES.ativo or CORES.inativo }):Play()
+	statusEspNormal.Text = normalAtivo and "ON" or "OFF"
+	statusEspNormal.TextColor3 = normalAtivo and CORES.textoPrincipal or CORES.textoSecundario
+	dotEspNormal.BackgroundColor3 = normalAtivo and CORES.espVisivel or CORES.textoSecundario
+
+	TweenService:Create(botaoEspInteligente, TWEEN_RAPIDO, { BackgroundColor3 = inteligenteAtivo and CORES.ativo or CORES.inativo }):Play()
+	statusEspInteligente.Text = inteligenteAtivo and "ON" or "OFF"
+	statusEspInteligente.TextColor3 = inteligenteAtivo and CORES.textoPrincipal or CORES.textoSecundario
+	dotEspInteligente.BackgroundColor3 = inteligenteAtivo and CORES.espVisivel or CORES.textoSecundario
+end
+
+local function definirModoEsp(novoModo)
+	if estado.modoEsp ~= "off" then
+		pararEsp()
+	end
+
+	if estado.modoEsp == novoModo then
+		estado.modoEsp = "off"
 	else
-		D.Minimized = true
-		MinimizedBar = Create("CanvasGroup", {
-			Name = "MinimizedBar",
-			Size = UDim2.new(0, 300, 0, 36),
-			Position = UDim2.new(0.5, 0, 0, -36),
-			AnchorPoint = Vector2.new(0.5, 0),
-			BackgroundColor3 = CFG.C.S1,
-			BorderSizePixel = 0,
-			ClipsDescendants = true,
-			Active = true,
-			Draggable = true,
-			ZIndex = 998,
-			Parent = MainGui,
-		})
-		Corner(MinimizedBar, 6)
-		Stroke(MinimizedBar, CFG.C.Red, 0.3)
-		Gradient(MinimizedBar, "bg")
-		Create("Frame", {
-			Size = UDim2.new(1, 0, 0, 2),
-			Position = UDim2.new(0, 0, 1, -2),
-			BackgroundColor3 = CFG.C.Red,
-			BorderSizePixel = 0,
-			ZIndex = 2,
-			Parent = MinimizedBar,
-		})
-		Create("TextLabel", {
-			Size = UDim2.new(1, -80, 1, 0),
-			Position = UDim2.new(0, 12, 0, 0),
-			Text = CFG.Name .. " (Minimizado)",
-			TextColor3 = CFG.C.T1,
-			Font = CFG.F.B,
-			TextSize = 12,
-			BackgroundTransparency = 1,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			ZIndex = 2,
-			Parent = MinimizedBar,
-		})
-		local expandBtn = Create("TextButton", {
-			Size = UDim2.new(0, 28, 0, 28),
-			Position = UDim2.new(1, -34, 0.5, 0),
-			AnchorPoint = Vector2.new(0, 0.5),
-			Text = "",
-			BackgroundColor3 = Color3.fromRGB(30, 30, 38),
-			BorderSizePixel = 0,
-			AutoButtonColor = false,
-			ZIndex = 2,
-			Parent = MinimizedBar,
-		})
-		Corner(expandBtn, 4)
-		Gradient(expandBtn, "btnGray")
-		Create("TextLabel", {
-			Size = UDim2.new(1, 0, 1, 0),
-			Text = "+",
-			TextColor3 = CFG.C.T1,
-			Font = CFG.F.B,
-			TextSize = 16,
-			BackgroundTransparency = 1,
-			ZIndex = 2,
-			Parent = expandBtn,
-		})
-		expandBtn.MouseButton1Click:Connect(function()
-			MinimizarPainel()
-		end)
-		MinimizedBar.Position = UDim2.new(0.5, 0, 0, -36)
-		Tween(MinimizedBar, {Position = UDim2.new(0.5, 0, 0, 8)}, 0.3, Enum.EasingStyle.Back)
-		MainPanel.Size = UDim2.new(0, 0, 0, 0)
-		MainPanel.Position = UDim2.new(0.5, 0, 1.2, 0)
-		Tween(MainPanel, {Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 1.2, 0)}, 0.2)
-		task.delay(0.25, function() if D.Minimized then MainPanel.Visible = false end end)
+		estado.modoEsp = novoModo
+		iniciarEsp()
 	end
+
+	atualizarBotoesEsp()
 end
 
-function FecharPainel()
-	if D.Minimized then
-		if MinimizedBar then MinimizedBar:Destroy(); MinimizedBar = nil end
-		D.Minimized = false
+botaoEspNormal.MouseButton1Click:Connect(function()
+	definirModoEsp("normal")
+end)
+
+botaoEspInteligente.MouseButton1Click:Connect(function()
+	definirModoEsp("inteligente")
+end)
+
+campoDistancia.FocusLost:Connect(function()
+	local valor = tonumber(campoDistancia.Text)
+	if valor then
+		valor = math.clamp(math.floor(valor), 50, 5000)
+	else
+		valor = estado.distanciaMaximaEsp
 	end
-	MainPanel.Visible = false
-	MainGui.Enabled = true
+	estado.distanciaMaximaEsp = valor
+	campoDistancia.Text = tostring(valor)
+	sincronizarEsp()
+	reconstruirFilaVisibilidade()
+end)
+
+local function alternarStreamingForcado()
+	estado.streamingForcado = not estado.streamingForcado
+
+	if estado.streamingForcado then
+		workspace.StreamingMinRadius = DISTANCIA_STREAMING_FORCADA
+		workspace.StreamingTargetRadius = DISTANCIA_STREAMING_FORCADA
+	else
+		workspace.StreamingMinRadius = streamingMinOriginal
+		workspace.StreamingTargetRadius = streamingTargetOriginal
+	end
+
+	TweenService:Create(botaoStreaming, TWEEN_RAPIDO, { BackgroundColor3 = estado.streamingForcado and CORES.ativo or CORES.inativo }):Play()
+	statusStreaming.Text = estado.streamingForcado and "ON" or "OFF"
+	statusStreaming.TextColor3 = estado.streamingForcado and CORES.textoPrincipal or CORES.textoSecundario
+	dotStreaming.BackgroundColor3 = estado.streamingForcado and CORES.espVisivel or CORES.textoSecundario
 end
 
--- ===================================================================
--- INICIALIZAÇÃO
--- ===================================================================
-local function Inicializar()
-	if not LP.Character then
-		LP.CharacterAdded:Wait()
+botaoStreaming.MouseButton1Click:Connect(alternarStreamingForcado)
+
+local function fecharPermanente()
+	if estado.painelAberto then
+		restaurarMouse()
 	end
-	ConstruirInterface()
-
-	for _, jogador in pairs(Players:GetPlayers()) do
-		jogador.Chatted:Connect(function(msg)
-			ChatSystem:AddLog("CHAT", jogador.Name, msg)
-		end)
+	if estado.modoEsp ~= "off" then
+		pararEsp()
 	end
-	Players.PlayerAdded:Connect(function(jogador)
-		jogador.Chatted:Connect(function(msg)
-			ChatSystem:AddLog("CHAT", jogador.Name, msg)
-		end)
-		ChatSystem:AddLog("SISTEMA", "SISTEMA", jogador.Name .. " entrou no servidor")
-	end)
-	Players.PlayerRemoving:Connect(function(jogador)
-		ChatSystem:AddLog("SISTEMA", "SISTEMA", jogador.Name .. " saiu do servidor")
-		CMD:ESP_Remover(jogador.Name)
-	end)
-
-	task.spawn(function()
-		while true do
-			task.wait(0.05)
-			local myHRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-			for nome, entry in pairs(CMD.ESP) do
-				local jogador = entry.Player
-				if not jogador or not jogador.Parent then
-					CMD:ESP_Remover(nome)
-				elseif entry.BB then
-					local infoLbl = entry.BB:FindFirstChild("Frame") and entry.BB.Frame:FindFirstChild("ESP_Info")
-					if infoLbl then
-						local txt = ""
-						local char = jogador.Character
-						local hrp = char and char:FindFirstChild("HumanoidRootPart")
-						local hum = char and char:FindFirstChildOfClass("Humanoid")
-						if D.ESP_Dist and myHRP and hrp then
-							txt = txt .. math.floor((hrp.Position - myHRP.Position).Magnitude) .. "m "
-						end
-						if D.ESP_HP and hum then
-							txt = txt .. math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth) .. " HP"
-						end
-						infoLbl.Text = txt
-					end
-				end
-			end
-		end
-	end)
-
-	LP.CharacterAdded:Connect(function()
-		task.wait(0.3)
-		if CMD.Active.NoClip then
-			pcall(function()
-				local char = LP.Character
-				if char then
-					for _, part in pairs(char:GetDescendants()) do
-						if part:IsA("BasePart") then part.CanCollide = false end
-					end
-				end
-			end)
-		end
-		if CMD.Active.Invisivel then
-			pcall(function()
-				local char = LP.Character
-				if char then
-					for _, part in pairs(char:GetChildren()) do
-						if part:IsA("BasePart") then part.Transparency = 0.85 end
-					end
-				end
-			end)
-		end
-		if CMD.Active.Velocidade then
-			pcall(function()
-				local char = LP.Character
-				if char then
-					local hum = char:FindFirstChild("Humanoid")
-					if hum then hum.WalkSpeed = CMD.Active.Velocidade end
-				end
-			end)
-		end
-	end)
-
-	UIS.InputBegan:Connect(function(input, gpe)
-		if gpe then return end
-		if input.KeyCode == Enum.KeyCode.F4 then
-			if LoginFrame and MainPanel then
-				if not LoginFrame.Visible then
-					if D.Minimized then
-						MinimizarPainel()
-					end
-					MainPanel.Visible = not MainPanel.Visible
-					if not MainPanel.Visible and MinimizedBar then
-						MinimizedBar.Visible = false
-					elseif MainPanel.Visible and MinimizedBar then
-						MinimizedBar.Visible = true
-					end
-				end
-			end
-		end
-	end)
-
-	if MOBILE then
-		local toques, ultimoToque = 0, 0
-		UIS.InputBegan:Connect(function(input, gpe)
-			if gpe then return end
-			if input.UserInputType == Enum.UserInputType.Touch then
-				local agora = os.clock()
-				if agora - ultimoToque < 0.4 then
-					toques = toques + 1
-				else
-					toques = 1
-				end
-				ultimoToque = agora
-				if toques >= 3 then
-					toques = 0
-					if LoginFrame and MainPanel then
-						if not LoginFrame.Visible then
-							if D.Minimized then MinimizarPainel() end
-							MainPanel.Visible = not MainPanel.Visible
-						end
-					end
-				end
-			end
-		end)
+	if estado.streamingForcado then
+		workspace.StreamingMinRadius = streamingMinOriginal
+		workspace.StreamingTargetRadius = streamingTargetOriginal
 	end
-
-	if LP.Name == CFG.Owner then
-		if not table.find(D.Banned, LP.Name) then
-			task.wait(0.5)
-			if LoginFrame then LoginFrame.Visible = false end
-			if MainPanel then MainPanel.Visible = true end
-			Auth:GrantAccess()
-		end
-	end
-
-	ChatSystem:AddLog("SISTEMA", "SISTEMA", "Painel v" .. CFG.Ver .. " carregado")
-	print("DISTRITO ADMIN v" .. CFG.Ver .. " carregado!")
-
-	if not SERVIDOR_OK then
-		task.delay(1.5, function()
-			Notify("CONFIGURAÇÃO PENDENTE",
-				"Instale o DistritoAdmin_Servidor.lua em ServerScriptService para ativar o chat entre admins e a data de criação confirmada.",
-				7, "w")
-		end)
-	end
+	telaGui:Destroy()
 end
 
-local ok, erro = pcall(Inicializar)
-if not ok then
-	warn("DISTRITO ADMIN: Erro - " .. tostring(erro))
-end
+botaoSair.MouseButton1Click:Connect(fecharPermanente)
